@@ -2,7 +2,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Kappiness CRM | Lead Management",
+  title: "Kappiness CRM",
   description:
     "Kappiness CRM for managing leads, follow ups, appointments, and counsellor relationships.",
   icons: {
