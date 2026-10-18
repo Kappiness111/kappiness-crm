@@ -1,8 +1,9 @@
-
 "use client";
 
+import { createClient } from '../utils/supabase/client'
+
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const initialLeads = [
   {
@@ -222,7 +223,9 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
 
 export default function DashboardPage() {
   const [activePage, setActivePage] = useState("Dashboard");
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(true);
+  const [leadsError, setLeadsError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
@@ -234,6 +237,73 @@ export default function DashboardPage() {
     email: "",
     source: "Website",
   });
+
+  useEffect(() => {
+  let cancelled = false;
+
+  async function loadLeads() {
+    const supabase = createClient();
+
+    try {
+      const { data, error } = await supabase
+        .from("leads")
+        .select(`
+          id,
+          lead_code,
+          full_name,
+          phone,
+          email,
+          source,
+          assigned_staff,
+          status,
+          created_at,
+          next_follow_up_at,
+          service_interest,
+          notes
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const mappedLeads = (data || []).map((lead) => ({
+        ...lead,
+        id: lead.lead_code || lead.id,
+        dbId: lead.id,
+        name: lead.full_name,
+        counsellor: lead.assigned_staff || "Unassigned",
+        date: lead.created_at
+          ? new Date(lead.created_at).toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })
+          : "",
+      }));
+
+      if (!cancelled) {
+        setLeads(mappedLeads);
+        setLeadsError("");
+      }
+    } catch (err) {
+      console.error("Failed to load leads from Supabase:", err);
+
+      if (!cancelled) {
+        setLeadsError("Could not load leads from Supabase. Check the browser console.");
+      }
+    } finally {
+      if (!cancelled) {
+        setLeadsLoading(false);
+      }
+    }
+  }
+
+  loadLeads();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
 
   const totalLeads = leads.length;
   const newCount = leads.filter((lead) => lead.status === "New").length;
@@ -264,36 +334,72 @@ export default function DashboardPage() {
     setSelectedLead(null);
   }
 
-  function handleAddLead(event) {
-    event.preventDefault();
+  
+async function handleAddLead(event) {
+  event.preventDefault();
 
-    const lead = {
-      id: `KAP-${String(Date.now()).slice(-6)}`,
-      name: newLead.name.trim(),
-      phone: newLead.phone.trim(),
-      email: newLead.email.trim(),
-      source: newLead.source,
-      counsellor: "Unassigned",
-      status: "New",
-      date: new Date().toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }),
-    };
+  const name = newLead.name.trim();
+  const phone = newLead.phone.trim();
+  const email = newLead.email.trim();
 
-    setLeads((current) => [lead, ...current]);
-    setNewLead({
-      name: "",
-      phone: "",
-      email: "",
-      source: "Website",
-    });
-    setStatusFilter("All");
-    setSearch("");
-    setShowForm(false);
-    navigateTo("Leads");
+  if (!name || !phone) {
+    alert("Please enter the lead's name and phone number.");
+    return;
   }
+
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      full_name: name,
+      phone,
+      email: email || null,
+      source: newLead.source,
+      status: "New",
+      assigned_staff: null,
+    })
+    .select(
+      "id, lead_code, full_name, phone, email, source, assigned_staff, status, created_at, next_follow_up_at, service_interest, notes"
+    )
+    .single();
+
+  if (error) {
+    console.error("Failed to create lead:", error);
+    alert(`Could not save lead: ${error.message}`);
+    return;
+  }
+
+  const savedLead = {
+    ...data,
+    dbId: data.id,
+    id: data.lead_code || data.id,
+    name: data.full_name,
+    counsellor: data.assigned_staff || "Unassigned",
+    date: data.created_at
+      ? new Date(data.created_at).toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "",
+  };
+
+  setLeads((current) => [savedLead, ...current]);
+
+  setNewLead({
+    name: "",
+    phone: "",
+    email: "",
+    source: "Website",
+  });
+
+  setStatusFilter("All");
+  setSearch("");
+  setShowForm(false);
+  navigateTo("Leads");
+}
+
 
   function updateLeadStatus(lead) {
     const nextStatus = lead.status === "New" ? "Contacted" : "Follow Up";
@@ -325,6 +431,19 @@ export default function DashboardPage() {
             </thead>
 
             <tbody>
+              {leadsLoading && (
+                <tr>
+                  <td colSpan={7}>Loading leads from Supabase...</td>
+                </tr>
+              )}
+
+              {!leadsLoading && leadsError && (
+                <tr>
+                  <td colSpan={7} role="alert">
+                    {leadsError}
+                  </td>
+                </tr>
+              )}
               {filteredLeads.map((lead) => (
                 <tr key={lead.id}>
                   <td>
@@ -355,7 +474,7 @@ export default function DashboardPage() {
                 </tr>
               ))}
 
-              {filteredLeads.length === 0 && (
+              {!leadsLoading && !leadsError && filteredLeads.length === 0 && (
                 <tr>
                   <td colSpan={7}>
                     <div className="empty-state">
