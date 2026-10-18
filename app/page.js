@@ -250,28 +250,40 @@ export default function DashboardPage() {
     return months;
   }, [leads, now]);
 
-  const filteredLeads = useMemo(() => {
-    const term = search.trim().toLowerCase();
+const filteredLeads = useMemo(() => {
+  const term = search.trim().toLowerCase();
+  const normalizedTerm = term.replace(/\s+/g, "");
 
-    return leads
-      .filter((lead) => {
-        const matchesSearch =
-          !term ||
-          [
-            lead.full_name,
-            lead.phone,
-            lead.email,
-            lead.lead_code,
-            lead.source,
-            lead.assigned_staff,
-            lead.service_interest,
-          ].some((field) => (field || "").toLowerCase().includes(term));
+  return leads
+    .filter((lead) => {
+      const normalizedPhone = (lead.phone || "")
+        .replace(/\s+/g, "")
+        .toLowerCase();
 
-        const matchesStatus = statusFilter === "All" || lead.status === statusFilter;
-        return matchesSearch && matchesStatus;
-      })
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  }, [leads, search, statusFilter]);
+      const matchesSearch =
+        !term ||
+        [
+          lead.full_name,
+          lead.email,
+          lead.lead_code,
+          lead.source,
+          lead.assigned_staff,
+          lead.service_interest,
+        ].some((field) =>
+          (field || "").toLowerCase().includes(term)
+        ) ||
+        normalizedPhone.includes(normalizedTerm);
+
+      const matchesStatus =
+        statusFilter === "All" || lead.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.created_at) - new Date(a.created_at)
+    );
+}, [leads, search, statusFilter]);
 
   /* ----- actions ----- */
 
@@ -452,7 +464,7 @@ export default function DashboardPage() {
                       <div className="person-avatar">{lead.full_name.charAt(0).toUpperCase()}</div>
                       <div className="person-info">
                         <strong>{lead.full_name}</strong>
-                        <span>{lead.phone}</span>
+                        <span>{(lead.phone || "").replace(/\s+/g, "")}</span>
                       </div>
                     </div>
                   </td>
