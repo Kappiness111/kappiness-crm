@@ -1,123 +1,51 @@
-
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import AddLeadModal from "./components/AddLeadModal";
+import Icon from "./components/Icon";
+import LeadDetailsModal from "./components/LeadDetailsModal";
+import StatusBadge from "./components/StatusBadge";
+import {
+  CLOSED_STATUSES,
+  STATUSES,
+  dueLabel,
+  formatDate,
+  formatDateTime,
+  formatShort,
+  formatTime,
+  getFollowUpState,
+  getGreeting,
+  makeActivity,
+  ensureActivity,
+  nextLeadCode,
+  parseDate,
+  toInputValue,
+} from "./lib/leads";
 
-const initialLeads = [
-  {
-    id: "KAP-001",
-    name: "Ananya Menon",
-    phone: "+91 98765 12340",
-    email: "ananya@example.com",
-    source: "Website",
-    counsellor: "Dr. Anusree",
-    status: "New",
-    date: "16 Oct 2026",
-  },
-  {
-    id: "KAP-002",
-    name: "Meera Nair",
-    phone: "+91 98765 12341",
-    email: "meera@example.com",
-    source: "Doctor Referral",
-    counsellor: "Dr. Anusree",
-    status: "Follow Up",
-    date: "15 Oct 2026",
-  },
-  {
-    id: "KAP-003",
-    name: "Arjun Kumar",
-    phone: "+91 98765 12342",
-    email: "arjun@example.com",
-    source: "Google Ads",
-    counsellor: "Unassigned",
-    status: "Contacted",
-    date: "15 Oct 2026",
-  },
-  {
-    id: "KAP-004",
-    name: "Diya Thomas",
-    phone: "+91 98765 12343",
-    email: "diya@example.com",
-    source: "Instagram",
-    counsellor: "Dr. Anusree",
-    status: "Converted",
-    date: "14 Oct 2026",
-  },
-  {
-    id: "KAP-005",
-    name: "Rahul Das",
-    phone: "+91 98765 12344",
-    email: "rahul@example.com",
-    source: "Walk In",
-    counsellor: "Unassigned",
-    status: "New",
-    date: "14 Oct 2026",
-  },
-];
-
+import { sampleLeads } from "./lib/sampleLeads";
 const navigation = [
-  { name: "Dashboard", icon: "⌂" },
-  { name: "Leads", icon: "♙" },
-  { name: "Follow Ups", icon: "◷" },
-  { name: "Appointments", icon: "▦" },
-  { name: "Counsellors", icon: "♧" },
-  { name: "Reports", icon: "▥" },
+  { name: "Dashboard", icon: "dashboard" },
+  { name: "Leads", icon: "users" },
+  { name: "Follow Ups", icon: "clock" },
+  { name: "Appointments", icon: "calendar" },
+  { name: "Counsellors", icon: "heart" },
+  { name: "Reports", icon: "chart" },
 ];
 
-const followUps = [
-  {
-    time: "10:30 AM",
-    name: "Meera Nair",
-    description: "Initial enquiry follow up",
-    type: "Phone call",
-  },
-  {
-    time: "12:00 PM",
-    name: "Ananya Menon",
-    description: "Discuss counselling options",
-    type: "Phone call",
-  },
-  {
-    time: "03:00 PM",
-    name: "Rahul Das",
-    description: "Confirm appointment",
-    type: "WhatsApp",
-  },
-];
+/* ------------------------------------------------------------------ */
+/* Small presentational components                                     */
+/* ------------------------------------------------------------------ */
 
-function Icon({ children }) {
-  return <span className="ui-icon" aria-hidden="true">{children}</span>;
-}
-
-function StatusBadge({ status }) {
-  const statusClass = status.toLowerCase().replaceAll(" ", "-");
-
-  return (
-    <span className={`status-badge status-${statusClass}`}>
-      <span className="status-dot" />
-      {status}
-    </span>
-  );
-}
-
-function ProgressRing({ value = 80 }) {
+function ProgressRing({ value = 0, label = "Engaged" }) {
   const radius = 53;
   const circumference = 2 * Math.PI * radius;
-  const progress = (value / 100) * circumference;
+  const progress = (Math.min(Math.max(value, 0), 100) / 100) * circumference;
 
   return (
     <div className="ring-container">
-      <svg viewBox="0 0 140 140" className="progress-ring">
-        <circle
-          cx="70"
-          cy="70"
-          r={radius}
-          fill="none"
-          stroke="#E9DFD0"
-          strokeWidth="9"
-        />
+      <svg viewBox="0 0 140 140" className="progress-ring" role="img" aria-label={`${value}% ${label}`}>
+        <circle cx="70" cy="70" r={radius} fill="none" stroke="#E9DFD0" strokeWidth="9" />
         <circle
           cx="70"
           cy="70"
@@ -128,29 +56,37 @@ function ProgressRing({ value = 80 }) {
           strokeLinecap="round"
           strokeDasharray={`${progress} ${circumference}`}
           transform="rotate(-90 70 70)"
+          style={{ transition: "stroke-dasharray 400ms ease" }}
         />
         <text x="70" y="68" textAnchor="middle" className="ring-value">
           {value}%
         </text>
         <text x="70" y="86" textAnchor="middle" className="ring-subtitle">
-          Follow ups
+          {label}
         </text>
       </svg>
     </div>
   );
 }
 
-function LeadTrendChart() {
-  const months = ["May", "Jun", "Jul", "Aug", "Sep", "Oct"];
+function LeadTrendChart({ data }) {
+  const peak = Math.max(...data.map((item) => item.count), 0);
+  const max = Math.max(4, Math.ceil(peak / 4) * 4);
+  const points = data.map((item, index) => ({
+    x: (index / (data.length - 1)) * 500,
+    y: 140 - (item.count / max) * 120,
+  }));
+  const line = points
+    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`)
+    .join(" ");
+  const yLabels = [max, (max * 3) / 4, max / 2, max / 4, 0];
 
   return (
     <div className="chart-container">
       <div className="chart-y-axis" aria-hidden="true">
-        <span>40</span>
-        <span>30</span>
-        <span>20</span>
-        <span>10</span>
-        <span>0</span>
+        {yLabels.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
       </div>
 
       <div className="chart-main">
@@ -159,33 +95,16 @@ function LeadTrendChart() {
           preserveAspectRatio="none"
           className="trend-chart"
           role="img"
-          aria-label="Illustrative lead activity trend"
+          aria-label="New leads added per month over the last six months"
         >
           {[20, 50, 80, 110, 140].map((y) => (
-            <line
-              key={y}
-              x1="0"
-              y1={y}
-              x2="500"
-              y2={y}
-              className="chart-grid"
-            />
+            <line key={y} x1="0" y1={y} x2="500" y2={y} className="chart-grid" />
           ))}
 
-          <defs>
-            <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#D99536" stopOpacity=".22" />
-              <stop offset="100%" stopColor="#D99536" stopOpacity="0" />
-            </linearGradient>
-          </defs>
+          <path d={`${line} L500 160 L0 160 Z`} fill="#D99536" fillOpacity=".14" />
 
           <path
-            d="M0 120 L40 102 L75 112 L110 76 L145 92 L180 64 L215 78 L250 42 L280 51 L315 26 L345 18 L375 68 L405 55 L435 84 L465 49 L500 34 L500 160 L0 160 Z"
-            fill="url(#trendFill)"
-          />
-
-          <path
-            d="M0 120 L40 102 L75 112 L110 76 L145 92 L180 64 L215 78 L250 42 L280 51 L315 26 L345 18 L375 68 L405 55 L435 84 L465 49 L500 34"
+            d={line}
             fill="none"
             stroke="#B96A08"
             strokeWidth="2.5"
@@ -196,7 +115,9 @@ function LeadTrendChart() {
         </svg>
 
         <div className="chart-months">
-          {months.map((month) => <span key={month}>{month}</span>)}
+          {data.map((item) => (
+            <span key={item.key}>{item.label}</span>
+          ))}
         </div>
       </div>
     </div>
@@ -220,94 +141,292 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
+
 export default function DashboardPage() {
   const [activePage, setActivePage] = useState("Dashboard");
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState(sampleLeads);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
-  const [selectedLead, setSelectedLead] = useState(null);
+  const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [newLead, setNewLead] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    source: "Website",
-  });
+  const [notice, setNotice] = useState("");
+  // The clock is set after mount so server and browser markup always match.
+  const [now, setNow] = useState(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(""), 3200);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const selectedLead = leads.find((lead) => lead.id === selectedLeadId) || null;
+
+
+  /* ----- derived data ----- */
 
   const totalLeads = leads.length;
-  const newCount = leads.filter((lead) => lead.status === "New").length;
-  const followUpCount = leads.filter((lead) => lead.status === "Follow Up").length;
-  const convertedCount = leads.filter((lead) => lead.status === "Converted").length;
-  const contactedCount = leads.filter((lead) => lead.status === "Contacted").length;
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    STATUSES.forEach((status) => {
+      counts[status] = leads.filter((lead) => lead.status === status).length;
+    });
+    return counts;
+  }, [leads]);
+
+  const newCount = statusCounts.New;
+  const contactedCount = statusCounts.Contacted;
+  const followUpCount = statusCounts["Follow Up"];
+  const convertedCount = statusCounts.Converted;
+  const lostCount = statusCounts.Lost;
+  const activeCount = totalLeads - convertedCount - lostCount;
+  const engagedPercent = totalLeads
+    ? Math.round(((contactedCount + followUpCount + convertedCount) / totalLeads) * 100)
+    : 0;
+  const staffCount = new Set(
+    leads.map((lead) => (lead.assigned_staff || "").trim()).filter(Boolean)
+  ).size;
+
+  const staffOptions = useMemo(
+    () =>
+      [...new Set(leads.map((lead) => (lead.assigned_staff || "").trim()).filter(Boolean))].sort(),
+    [leads]
+  );
+
+  const followUps = useMemo(() => {
+    const groups = { overdue: [], today: [], upcoming: [], unscheduled: [] };
+
+    leads.forEach((lead) => {
+      if (CLOSED_STATUSES.includes(lead.status)) return;
+      const state = getFollowUpState(lead, now);
+      if (state) groups[state].push(lead);
+      else if (!lead.next_follow_up_at) groups.unscheduled.push(lead);
+    });
+
+    const byDate = (a, b) => new Date(a.next_follow_up_at) - new Date(b.next_follow_up_at);
+    groups.overdue.sort(byDate);
+    groups.today.sort(byDate);
+    groups.upcoming.sort(byDate);
+    return groups;
+  }, [leads, now]);
+
+  const attentionCount = followUps.overdue.length + followUps.today.length;
+  const openFollowUpCount = attentionCount + followUps.upcoming.length;
+
+  const dashboardFollowUps =
+    attentionCount > 0
+      ? [...followUps.overdue, ...followUps.today].slice(0, 4)
+      : followUps.upcoming.slice(0, 4);
+
+  const trend = useMemo(() => {
+    const base = now || new Date("2026-10-17T00:00:00");
+    const months = [];
+
+    for (let offset = 5; offset >= 0; offset -= 1) {
+      const date = new Date(base.getFullYear(), base.getMonth() - offset, 1);
+      months.push({
+        key: `${date.getFullYear()}-${date.getMonth()}`,
+        label: date.toLocaleDateString("en-GB", { month: "short" }),
+        count: 0,
+      });
+    }
+
+    leads.forEach((lead) => {
+      const created = parseDate(lead.created_at);
+      if (!created) return;
+      const month = months.find((item) => item.key === `${created.getFullYear()}-${created.getMonth()}`);
+      if (month) month.count += 1;
+    });
+
+    return months;
+  }, [leads, now]);
 
   const filteredLeads = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    return leads.filter((lead) => {
-      const matchesSearch =
-        lead.name.toLowerCase().includes(term) ||
-        lead.phone.toLowerCase().includes(term) ||
-        lead.email.toLowerCase().includes(term) ||
-        lead.id.toLowerCase().includes(term);
+    return leads
+      .filter((lead) => {
+        const matchesSearch =
+          !term ||
+          [
+            lead.full_name,
+            lead.phone,
+            lead.email,
+            lead.lead_code,
+            lead.source,
+            lead.assigned_staff,
+            lead.service_interest,
+          ].some((field) => (field || "").toLowerCase().includes(term));
 
-      const matchesStatus =
-        statusFilter === "All" || lead.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
+        const matchesStatus = statusFilter === "All" || lead.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      })
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [leads, search, statusFilter]);
+
+  /* ----- actions ----- */
 
   function navigateTo(page) {
     setActivePage(page);
     setMobileMenuOpen(false);
-    setSelectedLead(null);
+    setSelectedLeadId(null);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
   }
 
-  function handleAddLead(event) {
-    event.preventDefault();
+  function openPage(page) {
+    if (page === "Leads") {
+      setStatusFilter("All");
+      setSearch("");
+    }
+    navigateTo(page);
+  }
 
-    const lead = {
-      id: `KAP-${String(Date.now()).slice(-6)}`,
-      name: newLead.name.trim(),
-      phone: newLead.phone.trim(),
-      email: newLead.email.trim(),
-      source: newLead.source,
-      counsellor: "Unassigned",
-      status: "New",
-      date: new Date().toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }),
-    };
-
-    setLeads((current) => [lead, ...current]);
-    setNewLead({
-      name: "",
-      phone: "",
-      email: "",
-      source: "Website",
-    });
-    setStatusFilter("All");
+  function goToLeads(status) {
+    setStatusFilter(status);
     setSearch("");
-    setShowForm(false);
     navigateTo("Leads");
   }
 
-  function updateLeadStatus(lead) {
-    const nextStatus = lead.status === "New" ? "Contacted" : "Follow Up";
-
+  // Updates a lead and appends any activity entries ({ type, text }) to its history.
+  function patchLead(id, changes, entries = []) {
+    const stamp = new Date().toISOString();
     setLeads((current) =>
-      current.map((item) =>
-        item.id === lead.id ? { ...item, status: nextStatus } : item
+      current.map((lead) =>
+        lead.id === id
+          ? {
+              ...lead,
+              ...changes,
+              updated_at: stamp,
+              activity: [
+                ...ensureActivity(lead),
+                ...entries.map((entry) => makeActivity(entry.type, entry.text)),
+              ],
+            }
+          : lead
       )
     );
-
-    setSelectedLead(null);
   }
 
-  function renderLeadsTable() {
+  function openAddForm() {
+    setSelectedLeadId(null);
+    setShowForm(true);
+  }
+
+  function openLead(lead) {
+    setShowForm(false);
+    setSelectedLeadId(lead.id);
+  }
+
+  function closeDialogs() {
+    setShowForm(false);
+    setSelectedLeadId(null);
+  }
+
+  function handleCreateLead(values, { addAnother = false } = {}) {
+    const stamp = new Date().toISOString();
+    const code = nextLeadCode(leads);
+    const activity = [makeActivity("created", `Lead created from ${values.source}`)];
+
+    if (values.next_follow_up_at) {
+      activity.push(
+        makeActivity("followup", `Follow up scheduled for ${formatDateTime(values.next_follow_up_at)}`)
+      );
+    }
+
+    const lead = {
+      id: `local-${Date.now()}`,
+      lead_code: code,
+      ...values,
+      status: "New",
+      not_converted_reason: "",
+      created_at: stamp,
+      updated_at: stamp,
+      activity,
+    };
+
+    setLeads((current) => [lead, ...current]);
+    setNotice(`${lead.full_name} added as ${lead.lead_code}`);
+
+    if (!addAnother) {
+      setShowForm(false);
+      setStatusFilter("All");
+      setSearch("");
+      navigateTo("Leads");
+    }
+  }
+
+  function handleSaveLead(id, changes, entries) {
+    const lead = leads.find((item) => item.id === id);
+    patchLead(id, changes, entries);
+    setNotice(`${lead ? lead.full_name : "Lead"} updated`);
+  }
+
+  function handleAddNote(id, text) {
+    patchLead(id, {}, [{ type: "note", text }]);
+    setNotice("Note added");
+  }
+
+  function handleDeleteLead(id) {
+    const lead = leads.find((item) => item.id === id);
+    setLeads((current) => current.filter((item) => item.id !== id));
+    setNotice(`${lead ? lead.full_name : "Lead"} deleted`);
+    closeDialogs();
+  }
+
+  function completeFollowUp(lead) {
+    const nextStatus = ["New", "Follow Up"].includes(lead.status) ? "Contacted" : lead.status;
+    const entries = [{ type: "followup", text: "Follow up marked as done" }];
+
+    if (nextStatus !== lead.status) {
+      entries.push({ type: "status", text: `Status changed from ${lead.status} to ${nextStatus}` });
+    }
+
+    patchLead(lead.id, { status: nextStatus, next_follow_up_at: "" }, entries);
+    setNotice(`Follow up with ${lead.full_name} marked as done`);
+  }
+
+  function snoozeFollowUp(lead) {
+    const original = parseDate(lead.next_follow_up_at) || new Date();
+    const target = new Date(now || new Date());
+    target.setDate(target.getDate() + 1);
+    target.setHours(original.getHours(), original.getMinutes(), 0, 0);
+
+    patchLead(lead.id, { next_follow_up_at: toInputValue(target) }, [
+      { type: "followup", text: `Follow up moved to ${formatDateTime(toInputValue(target))}` },
+    ]);
+    setNotice(`${lead.full_name} moved to tomorrow`);
+  }
+
+
+  /* ----- shared renderers ----- */
+
+  function renderFollowUpCell(lead) {
+    const state = getFollowUpState(lead, now);
+
+    if (!lead.next_follow_up_at || CLOSED_STATUSES.includes(lead.status)) {
+      return <span className="muted-cell">—</span>;
+    }
+
+    return (
+      <span className={`due-chip ${state === "overdue" ? "due-overdue" : ""}`}>
+        {formatShort(lead.next_follow_up_at)}
+      </span>
+    );
+  }
+
+  function renderLeadsTable(limit) {
+    const rows = limit ? filteredLeads.slice(0, limit) : filteredLeads;
+    const isFiltered = filteredLeads.length !== totalLeads;
+
     return (
       <>
         <div className="table-scroll">
@@ -317,37 +436,42 @@ export default function DashboardPage() {
                 <th>LEAD</th>
                 <th>LEAD ID</th>
                 <th>SOURCE</th>
-                <th>COUNSELLOR</th>
+                <th>ASSIGNED STAFF</th>
                 <th>STATUS</th>
+                <th>NEXT FOLLOW UP</th>
                 <th>DATE ADDED</th>
                 <th aria-label="Actions" />
               </tr>
             </thead>
 
             <tbody>
-              {filteredLeads.map((lead) => (
-                <tr key={lead.id}>
+              {rows.map((lead) => (
+                <tr key={lead.id} onClick={() => openLead(lead)}>
                   <td>
                     <div className="person-cell">
-                      <div className="person-avatar">
-                        {lead.name.charAt(0).toUpperCase()}
-                      </div>
+                      <div className="person-avatar">{lead.full_name.charAt(0).toUpperCase()}</div>
                       <div className="person-info">
-                        <strong>{lead.name}</strong>
+                        <strong>{lead.full_name}</strong>
                         <span>{lead.phone}</span>
                       </div>
                     </div>
                   </td>
-                  <td className="muted-cell">{lead.id}</td>
+                  <td className="muted-cell">{lead.lead_code}</td>
                   <td>{lead.source}</td>
-                  <td>{lead.counsellor}</td>
-                  <td><StatusBadge status={lead.status} /></td>
-                  <td>{lead.date}</td>
+                  <td>{lead.assigned_staff || "Unassigned"}</td>
+                  <td>
+                    <StatusBadge status={lead.status} />
+                  </td>
+                  <td>{renderFollowUpCell(lead)}</td>
+                  <td>{formatDate(lead.created_at)}</td>
                   <td>
                     <button
                       className="row-action"
-                      onClick={() => setSelectedLead(lead)}
-                      aria-label={`View details for ${lead.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openLead(lead);
+                      }}
+                      aria-label={`View details for ${lead.full_name}`}
                     >
                       ⋯
                     </button>
@@ -355,11 +479,13 @@ export default function DashboardPage() {
                 </tr>
               ))}
 
-              {filteredLeads.length === 0 && (
-                <tr>
-                  <td colSpan={7}>
+              {rows.length === 0 && (
+                <tr className="empty-row">
+                  <td colSpan={8}>
                     <div className="empty-state">
-                      <span className="empty-state-icon">⌕</span>
+                      <span className="empty-state-icon">
+                        <Icon name="search" />
+                      </span>
                       <strong>No leads found</strong>
                       <p>Try another search or change the status filter.</p>
                       <button
@@ -380,14 +506,75 @@ export default function DashboardPage() {
         </div>
 
         <div className="table-footer">
-          <span>Showing {filteredLeads.length} of {totalLeads} leads</span>
-          <button className="text-button" onClick={() => navigateTo("Leads")}>
-            View all leads <span aria-hidden="true">→</span>
-          </button>
+          <span>
+            Showing {rows.length} of {filteredLeads.length} leads
+            {isFiltered ? ` · ${totalLeads} total` : ""}
+          </span>
+          {limit && (
+            <button className="text-button" onClick={() => goToLeads(statusFilter)}>
+              View all leads <span aria-hidden="true">→</span>
+            </button>
+          )}
         </div>
       </>
     );
   }
+
+  function renderFollowUpGroup(title, items, tone) {
+    if (items.length === 0) return null;
+
+    return (
+      <div className="fu-group" key={title}>
+        <h3>
+          {title} <span>{items.length}</span>
+        </h3>
+
+        <div className="fu-list">
+          {items.map((lead) => (
+            <div className="fu-row" key={lead.id}>
+              <div className="fu-when">
+                <span className={tone === "overdue" ? "due-text-overdue" : ""}>
+                  {lead.next_follow_up_at ? formatTime(lead.next_follow_up_at) : "Not scheduled"}
+                </span>
+                {lead.next_follow_up_at && <small>{dueLabel(lead, now)}</small>}
+              </div>
+
+              <div className="fu-main">
+                <strong>{lead.full_name}</strong>
+                <span>
+                  {lead.source} · {lead.assigned_staff || "Unassigned"}
+                </span>
+              </div>
+
+              <StatusBadge status={lead.status} />
+
+              <div className="fu-actions">
+                {lead.next_follow_up_at ? (
+                  <>
+                    <button className="mini-button primary" onClick={() => completeFollowUp(lead)}>
+                      <Icon name="check" /> Done
+                    </button>
+                    <button className="mini-button" onClick={() => snoozeFollowUp(lead)}>
+                      Tomorrow
+                    </button>
+                  </>
+                ) : null}
+                <button className="mini-button" onClick={() => openLead(lead)}>
+                  {lead.next_follow_up_at ? "Open" : "Schedule"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const dateLabel = now
+    ? now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : "";
+
+  /* ----- render ----- */
 
   return (
     <main className="crm-shell">
@@ -412,12 +599,8 @@ export default function DashboardPage() {
             />
           </div>
 
-          <button
-            className="mobile-close"
-            onClick={() => setMobileMenuOpen(false)}
-            aria-label="Close menu"
-          >
-            ×
+          <button className="mobile-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">
+            <Icon name="close" />
           </button>
         </div>
 
@@ -428,13 +611,16 @@ export default function DashboardPage() {
             <button
               key={item.name}
               className={`nav-item ${activePage === item.name ? "active" : ""}`}
-              onClick={() => navigateTo(item.name)}
+              onClick={() => openPage(item.name)}
+              aria-current={activePage === item.name ? "page" : undefined}
             >
-              <Icon>{item.icon}</Icon>
+              <span className="ui-icon" aria-hidden="true">
+                <Icon name={item.icon} />
+              </span>
               <span className="nav-label">{item.name}</span>
 
-              {item.name === "Follow Ups" && followUpCount > 0 && (
-                <span className="nav-count">{followUpCount}</span>
+              {item.name === "Follow Ups" && openFollowUpCount > 0 && (
+                <span className="nav-count">{openFollowUpCount}</span>
               )}
             </button>
           ))}
@@ -442,12 +628,16 @@ export default function DashboardPage() {
 
         <div className="sidebar-bottom">
           <div className="help-card">
-            <span className="help-icon">i</span>
+            <span className="help-icon">
+              <Icon name="info" />
+            </span>
             <div>
               <strong>Need assistance?</strong>
               <span>Workspace guide</span>
             </div>
-            <span className="help-arrow">↗</span>
+            <span className="help-arrow">
+              <Icon name="arrowUpRight" />
+            </span>
           </div>
 
           <div className="profile">
@@ -456,7 +646,9 @@ export default function DashboardPage() {
               <strong>CRM Admin</strong>
               <span>Administrator</span>
             </div>
-            <span className="profile-chevron">⌄</span>
+            <span className="profile-chevron">
+              <Icon name="chevronDown" />
+            </span>
           </div>
         </div>
       </aside>
@@ -469,7 +661,7 @@ export default function DashboardPage() {
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation"
             >
-              ☰
+              <Icon name="menu" />
             </button>
             <span>Workspace</span>
             <span className="breadcrumb-divider">/</span>
@@ -477,16 +669,21 @@ export default function DashboardPage() {
           </div>
 
           <div className="topbar-actions">
-            <span className="today-label">Friday, 16 October 2026</span>
-            <button
-              className="top-icon"
-              aria-label="Appointments"
-              onClick={() => navigateTo("Appointments")}
-            >
-              ▦
+            <span className="today-label">{dateLabel}</span>
+            <button className="top-icon" aria-label="Appointments" onClick={() => navigateTo("Appointments")}>
+              <Icon name="calendar" />
             </button>
-            <button className="top-icon notification-button" aria-label="Notifications">
-              ♧<span className="notification-dot" />
+            <button
+              className="top-icon notification-button"
+              aria-label={
+                attentionCount > 0
+                  ? `${attentionCount} follow ups need attention`
+                  : "No follow ups need attention"
+              }
+              onClick={() => navigateTo("Follow Ups")}
+            >
+              <Icon name="bell" />
+              {attentionCount > 0 && <span className="notification-dot" />}
             </button>
           </div>
         </header>
@@ -496,12 +693,20 @@ export default function DashboardPage() {
             <section className="hero-panel">
               <div className="hero-content">
                 <span className="eyebrow">YOUR WORKSPACE AT A GLANCE</span>
-                <h1>Good morning, <span>Team Kappiness</span></h1>
-                <p>Here is what is happening with your leads today.</p>
+                <h1>
+                  {getGreeting(now)}, <span>Team Kappiness</span>
+                </h1>
+                <p>
+                  {attentionCount > 0
+                    ? `${attentionCount} follow up${attentionCount > 1 ? "s need" : " needs"} your attention today.`
+                    : "Here is what is happening with your leads today."}
+                </p>
 
                 <div className="hero-stats">
                   <div className="hero-stat">
-                    <span className="hero-stat-icon">♙</span>
+                    <span className="hero-stat-icon">
+                      <Icon name="users" />
+                    </span>
                     <div>
                       <strong>{totalLeads}</strong>
                       <span>Total Leads</span>
@@ -509,7 +714,9 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="hero-stat">
-                    <span className="hero-stat-icon">✳</span>
+                    <span className="hero-stat-icon">
+                      <Icon name="sparkle" />
+                    </span>
                     <div>
                       <strong>{newCount}</strong>
                       <span>New Leads</span>
@@ -517,7 +724,9 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="hero-stat">
-                    <span className="hero-stat-icon">◷</span>
+                    <span className="hero-stat-icon">
+                      <Icon name="clock" />
+                    </span>
                     <div>
                       <strong>{followUpCount}</strong>
                       <span>Follow Ups</span>
@@ -525,7 +734,9 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="hero-stat">
-                    <span className="hero-stat-icon">✓</span>
+                    <span className="hero-stat-icon">
+                      <Icon name="check" />
+                    </span>
                     <div>
                       <strong>{convertedCount}</strong>
                       <span>Converted</span>
@@ -535,9 +746,9 @@ export default function DashboardPage() {
               </div>
 
               <div className="hero-progress">
-                <span className="progress-title">FOLLOW UP PROGRESS</span>
-                <ProgressRing />
-                <p>Keep every conversation moving forward.</p>
+                <span className="progress-title">LEAD ENGAGEMENT</span>
+                <ProgressRing value={engagedPercent} label="Engaged" />
+                <p>Share of leads that have been contacted or converted.</p>
               </div>
             </section>
 
@@ -545,45 +756,50 @@ export default function DashboardPage() {
               <article className="surface schedule-card">
                 <SectionHeading
                   eyebrow="STAY CONNECTED"
-                  title="Today's follow ups"
+                  title={attentionCount > 0 ? "Today's follow ups" : "Upcoming follow ups"}
                   action="View all →"
                   onAction={() => navigateTo("Follow Ups")}
                 />
 
                 <div className="schedule-date">
-                  <span>FRI</span>
-                  <strong>16</strong>
-                  <small>OCT</small>
+                  <span>{now ? now.toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase() : "—"}</span>
+                  <strong>{now ? now.getDate() : "—"}</strong>
+                  <small>
+                    {now ? now.toLocaleDateString("en-GB", { month: "short" }).toUpperCase() : ""}
+                  </small>
                 </div>
 
                 <div className="follow-list">
-                  {followUps.map((item, index) => (
-                    <div className="follow-item" key={item.name}>
-                      <span className={`timeline-dot timeline-dot-${index}`} />
+                  {dashboardFollowUps.map((lead, index) => (
+                    <div className="follow-item" key={lead.id}>
+                      <span className={`timeline-dot timeline-dot-${index % 3}`} />
 
-                      <span className="follow-time">{item.time}</span>
+                      <span className="follow-time">{formatTime(lead.next_follow_up_at)}</span>
 
                       <div className="follow-details">
-                        <strong>{item.name}</strong>
-                        <span>{item.description}</span>
-                        <small>{item.type}</small>
+                        <strong>{lead.full_name}</strong>
+                        <span>
+                          {dueLabel(lead, now)} · {lead.source}
+                        </span>
+                        <small>{lead.assigned_staff || "Unassigned"}</small>
                       </div>
 
                       <button
                         className="round-arrow"
-                        onClick={() => navigateTo("Follow Ups")}
-                        aria-label={`Open follow up for ${item.name}`}
+                        onClick={() => openLead(lead)}
+                        aria-label={`Open follow up for ${lead.full_name}`}
                       >
-                        ↗
+                        <Icon name="arrowUpRight" />
                       </button>
                     </div>
                   ))}
+
+                  {dashboardFollowUps.length === 0 && (
+                    <p className="subtle-text card-empty">No follow ups scheduled. You are all caught up.</p>
+                  )}
                 </div>
 
-                <button
-                  className="schedule-add"
-                  onClick={() => navigateTo("Follow Ups")}
-                >
+                <button className="schedule-add" onClick={() => navigateTo("Follow Ups")}>
                   + View follow up schedule
                 </button>
               </article>
@@ -592,22 +808,22 @@ export default function DashboardPage() {
                 <SectionHeading
                   eyebrow="LEAD ACTIVITY"
                   title="Lead overview"
-                  action="↗"
+                  action="Reports →"
                   onAction={() => navigateTo("Reports")}
                 />
 
                 <div className="performance-number">
                   <strong>{totalLeads}</strong>
-                  <span className="trend-pill">Active records</span>
+                  <span className="trend-pill">{activeCount} active</span>
                 </div>
 
-                <p className="subtle-text">Lead activity over the past six months</p>
+                <p className="subtle-text">New leads added over the past six months</p>
 
-                <LeadTrendChart />
+                <LeadTrendChart data={trend} />
 
                 <div className="chart-legend">
                   <span />
-                  <span>Illustrative trend · Sample data</span>
+                  <span>New leads per month</span>
                 </div>
               </article>
 
@@ -615,8 +831,8 @@ export default function DashboardPage() {
                 <SectionHeading
                   eyebrow="PIPELINE"
                   title="Lead status"
-                  action="···"
-                  onAction={() => navigateTo("Leads")}
+                  action="View →"
+                  onAction={() => goToLeads("All")}
                 />
 
                 <div className="pipeline-total">
@@ -630,24 +846,19 @@ export default function DashboardPage() {
                     { name: "Contacted", count: contactedCount, color: "bar-brown" },
                     { name: "Follow Up", count: followUpCount, color: "bar-beige" },
                     { name: "Converted", count: convertedCount, color: "bar-muted" },
+                    { name: "Lost", count: lostCount, color: "bar-lost" },
                   ].map((item) => (
                     <button
                       key={item.name}
                       className="status-bar-item"
-                      onClick={() => {
-                        setStatusFilter(item.name);
-                        navigateTo("Leads");
-                      }}
-                      aria-label={`View ${item.name} leads`}
+                      onClick={() => goToLeads(item.name)}
+                      aria-label={`View ${item.count} ${item.name} leads`}
                     >
                       <div className="status-bar-track">
                         <div
                           className={`status-bar-fill ${item.color}`}
                           style={{
-                            height: `${Math.max(
-                              8,
-                              (item.count / Math.max(totalLeads, 1)) * 100
-                            )}%`,
+                            width: `${item.count === 0 ? 0 : Math.max(6, (item.count / Math.max(totalLeads, 1)) * 100)}%`,
                           }}
                         />
                       </div>
@@ -662,55 +873,50 @@ export default function DashboardPage() {
             <section className="quick-stats">
               <article className="quick-stat-card">
                 <div className="quick-stat-top">
-                  <span className="quick-stat-icon">◷</span>
-                  <span className="quick-stat-tag">TODAY</span>
+                  <span className="quick-stat-icon">
+                    <Icon name="clock" />
+                  </span>
+                  <span className="quick-stat-tag">{attentionCount > 0 ? "NEEDS ACTION" : "TODAY"}</span>
                 </div>
                 <span className="quick-stat-label">Follow ups due</span>
-                <strong>{followUps.length}</strong>
-                <button onClick={() => navigateTo("Follow Ups")}>
-                  Review schedule ↗
-                </button>
+                <strong>{attentionCount}</strong>
+                <button onClick={() => navigateTo("Follow Ups")}>Review schedule ↗</button>
               </article>
 
               <article className="quick-stat-card">
                 <div className="quick-stat-top">
-                  <span className="quick-stat-icon">▦</span>
+                  <span className="quick-stat-icon">
+                    <Icon name="calendar" />
+                  </span>
                   <span className="quick-stat-tag">UPCOMING</span>
                 </div>
                 <span className="quick-stat-label">Appointments</span>
-                <strong>4</strong>
-                <button onClick={() => navigateTo("Appointments")}>
-                  View appointments ↗
-                </button>
+                <strong>—</strong>
+                <button onClick={() => navigateTo("Appointments")}>View appointments ↗</button>
               </article>
 
               <article className="quick-stat-card">
                 <div className="quick-stat-top">
-                  <span className="quick-stat-icon">♙</span>
+                  <span className="quick-stat-icon">
+                    <Icon name="heart" />
+                  </span>
                   <span className="quick-stat-tag">TEAM</span>
                 </div>
-                <span className="quick-stat-label">Active counsellors</span>
-                <strong>3</strong>
-                <button onClick={() => navigateTo("Counsellors")}>
-                  View team ↗
-                </button>
+                <span className="quick-stat-label">Assigned counsellors</span>
+                <strong>{staffCount}</strong>
+                <button onClick={() => navigateTo("Counsellors")}>View team ↗</button>
               </article>
 
               <article className="quick-stat-card">
                 <div className="quick-stat-top">
-                  <span className="quick-stat-icon">✓</span>
+                  <span className="quick-stat-icon">
+                    <Icon name="check" />
+                  </span>
                   <span className="quick-stat-tag">COMPLETED</span>
                 </div>
                 <span className="quick-stat-label">Converted leads</span>
                 <strong>{convertedCount}</strong>
-                <button
-                  onClick={() => {
-                    setStatusFilter("Converted");
-                    navigateTo("Leads");
-                  }}
-                >
-                  View converted ↗
-                </button>
+                <button onClick={() => goToLeads("Converted")}>View converted ↗</button>
               </article>
             </section>
 
@@ -722,17 +928,17 @@ export default function DashboardPage() {
                   <p>Keep track of every new conversation.</p>
                 </div>
 
-                <button className="primary-button" onClick={() => setShowForm(true)}>
-                  <span>＋</span> Add lead
+                <button className="primary-button" onClick={openAddForm}>
+                  <Icon name="plus" /> Add lead
                 </button>
               </div>
 
               <div className="table-toolbar">
                 <div className="table-tabs">
                   {[
-                    { label: "All leads", value: "All" },
-                    { label: "New", value: "New" },
-                    { label: "Follow ups", value: "Follow Up" },
+                    { label: "All leads", value: "All", count: totalLeads },
+                    { label: "New", value: "New", count: newCount },
+                    { label: "Follow ups", value: "Follow Up", count: followUpCount },
                   ].map((tab) => (
                     <button
                       key={tab.value}
@@ -740,14 +946,16 @@ export default function DashboardPage() {
                       onClick={() => setStatusFilter(tab.value)}
                     >
                       {tab.label}
-                      {tab.value === "All" && <span>{totalLeads}</span>}
+                      <span>{tab.count}</span>
                     </button>
                   ))}
                 </div>
 
                 <div className="table-controls">
                   <label className="search-box">
-                    <span aria-hidden="true">⌕</span>
+                    <span aria-hidden="true">
+                      <Icon name="search" />
+                    </span>
                     <input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
@@ -762,14 +970,16 @@ export default function DashboardPage() {
                     onChange={(event) => setStatusFilter(event.target.value)}
                     aria-label="Filter by lead status"
                   >
-                    {["All", "New", "Contacted", "Follow Up", "Converted", "Lost"].map((status) => (
-                      <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>
+                    {["All", ...STATUSES].map((status) => (
+                      <option key={status} value={status}>
+                        {status === "All" ? "All statuses" : status}
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {renderLeadsTable()}
+              {renderLeadsTable(5)}
             </section>
           </>
         )}
@@ -782,26 +992,29 @@ export default function DashboardPage() {
                 <h2>Leads</h2>
                 <p>Manage and track your enquiries in one place.</p>
               </div>
-              <button className="primary-button" onClick={() => setShowForm(true)}>
-                ＋ Add lead
+              <button className="primary-button" onClick={openAddForm}>
+                <Icon name="plus" /> Add lead
               </button>
             </div>
 
             <div className="table-toolbar">
               <div className="table-tabs">
-                {["All", "New", "Contacted", "Follow Up", "Converted", "Lost"].map((status) => (
+                {["All", ...STATUSES].map((status) => (
                   <button
                     key={status}
                     className={`table-tab ${statusFilter === status ? "active" : ""}`}
                     onClick={() => setStatusFilter(status)}
                   >
                     {status === "All" ? "All leads" : status}
+                    <span>{status === "All" ? totalLeads : statusCounts[status]}</span>
                   </button>
                 ))}
               </div>
 
               <label className="search-box page-search">
-                <span aria-hidden="true">⌕</span>
+                <span aria-hidden="true">
+                  <Icon name="search" />
+                </span>
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -812,36 +1025,71 @@ export default function DashboardPage() {
             </div>
 
             {renderLeadsTable()}
-
-            <p className="prototype-note">
-              Prototype data only. Supabase persistence has not been connected yet.
-            </p>
           </section>
         )}
 
-        {activePage !== "Dashboard" && activePage !== "Leads" && (
+        {activePage === "Follow Ups" && (
+          <section className="surface page-section">
+            <div className="leads-section-heading">
+              <div>
+                <span className="eyebrow">STAY CONNECTED</span>
+                <h2>Follow ups</h2>
+                <p>Every scheduled conversation, in the order it needs attention.</p>
+              </div>
+              <button className="primary-button" onClick={openAddForm}>
+                <Icon name="plus" /> Add lead
+              </button>
+            </div>
+
+            <div className="fu-summary">
+              <div className="fu-summary-card">
+                <strong className={followUps.overdue.length > 0 ? "due-text-overdue" : ""}>
+                  {followUps.overdue.length}
+                </strong>
+                <span>Overdue</span>
+              </div>
+              <div className="fu-summary-card">
+                <strong>{followUps.today.length}</strong>
+                <span>Due today</span>
+              </div>
+              <div className="fu-summary-card">
+                <strong>{followUps.upcoming.length}</strong>
+                <span>Upcoming</span>
+              </div>
+              <div className="fu-summary-card">
+                <strong>{followUps.unscheduled.length}</strong>
+                <span>Not scheduled</span>
+              </div>
+            </div>
+
+            {renderFollowUpGroup("Overdue", followUps.overdue, "overdue")}
+            {renderFollowUpGroup("Due today", followUps.today, "today")}
+            {renderFollowUpGroup("Upcoming", followUps.upcoming, "upcoming")}
+            {renderFollowUpGroup("Needs a follow up date", followUps.unscheduled, "none")}
+
+            {openFollowUpCount === 0 && followUps.unscheduled.length === 0 && (
+              <div className="empty-state">
+                <span className="empty-state-icon">
+                  <Icon name="check" />
+                </span>
+                <strong>You are all caught up</strong>
+                <p>No follow ups are scheduled right now.</p>
+              </div>
+            )}
+          </section>
+        )}
+
+        {["Appointments", "Counsellors", "Reports"].includes(activePage) && (
           <section className="surface placeholder-page">
             <div className="placeholder-icon">
-              {navigation.find((item) => item.name === activePage)?.icon || "⚙"}
+              <Icon name={navigation.find((item) => item.name === activePage)?.icon || "settings"} />
             </div>
             <span className="eyebrow">KAPPINESS CRM</span>
             <h2>{activePage}</h2>
             <p>This section is ready for the next implementation step.</p>
 
-            {activePage === "Follow Ups" && (
-              <div className="placeholder-follow-list">
-                {followUps.map((item) => (
-                  <div className="placeholder-follow" key={item.name}>
-                    <strong>{item.name}</strong>
-                    <span>{item.description}</span>
-                    <small>{item.time}</small>
-                  </div>
-                ))}
-              </div>
-            )}
-
             <button className="secondary-button" onClick={() => navigateTo("Dashboard")}>
-              ← Back to dashboard
+              <Icon name="arrowLeft" /> Back to dashboard
             </button>
           </section>
         )}
@@ -853,140 +1101,33 @@ export default function DashboardPage() {
       </section>
 
       {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-          <section
-            className="lead-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-lead-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-heading">
-              <div>
-                <span className="eyebrow">NEW RECORD</span>
-                <h2 id="add-lead-title">Add a lead</h2>
-                <p>Enter the details of a new enquiry.</p>
-              </div>
-              <button
-                className="modal-close"
-                onClick={() => setShowForm(false)}
-                aria-label="Close form"
-              >
-                ×
-              </button>
-            </div>
-
-            <form onSubmit={handleAddLead}>
-              <label>
-                Full name <span className="required">*</span>
-                <input
-                  required
-                  value={newLead.name}
-                  onChange={(event) => setNewLead({ ...newLead, name: event.target.value })}
-                  placeholder="Enter full name"
-                />
-              </label>
-
-              <label>
-                Phone number <span className="required">*</span>
-                <input
-                  required
-                  type="tel"
-                  value={newLead.phone}
-                  onChange={(event) => setNewLead({ ...newLead, phone: event.target.value })}
-                  placeholder="+91"
-                />
-              </label>
-
-              <label>
-                Email address
-                <input
-                  type="email"
-                  value={newLead.email}
-                  onChange={(event) => setNewLead({ ...newLead, email: event.target.value })}
-                  placeholder="name@example.com"
-                />
-              </label>
-
-              <label>
-                Lead source
-                <select
-                  value={newLead.source}
-                  onChange={(event) => setNewLead({ ...newLead, source: event.target.value })}
-                >
-                  {[
-                    "Website",
-                    "Phone Call",
-                    "Walk In",
-                    "Doctor Referral",
-                    "Instagram",
-                    "Facebook",
-                    "Google Ads",
-                    "WhatsApp",
-                    "Other",
-                  ].map((source) => <option key={source}>{source}</option>)}
-                </select>
-              </label>
-
-              <div className="modal-actions">
-                <button type="button" className="secondary-button" onClick={() => setShowForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="primary-button">
-                  Save lead
-                </button>
-              </div>
-
-              <p className="form-note">
-                This prototype keeps new leads in temporary page state. They will not persist after a refresh.
-              </p>
-            </form>
-          </section>
-        </div>
+        <AddLeadModal
+          leads={leads}
+          staffOptions={staffOptions}
+          onClose={() => setShowForm(false)}
+          onCreate={handleCreateLead}
+        />
       )}
 
       {selectedLead && (
-        <div className="modal-backdrop" onClick={() => setSelectedLead(null)}>
-          <section
-            className="lead-modal details-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="lead-details-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-heading">
-              <div>
-                <span className="eyebrow">LEAD DETAILS</span>
-                <h2 id="lead-details-title">{selectedLead.name}</h2>
-                <p>{selectedLead.id}</p>
-              </div>
-              <button
-                className="modal-close"
-                onClick={() => setSelectedLead(null)}
-                aria-label="Close details"
-              >
-                ×
-              </button>
-            </div>
+        <LeadDetailsModal
+          key={selectedLead.id}
+          lead={selectedLead}
+          now={now}
+          staffOptions={staffOptions}
+          onClose={() => setSelectedLeadId(null)}
+          onSave={handleSaveLead}
+          onAddNote={handleAddNote}
+          onDelete={handleDeleteLead}
+          onCompleteFollowUp={completeFollowUp}
+          onSnoozeFollowUp={snoozeFollowUp}
+        />
+      )}
 
-            <div className="detail-list">
-              <div><span>Phone</span><strong>{selectedLead.phone}</strong></div>
-              <div><span>Email</span><strong>{selectedLead.email || "Not provided"}</strong></div>
-              <div><span>Source</span><strong>{selectedLead.source}</strong></div>
-              <div><span>Assigned counsellor</span><strong>{selectedLead.counsellor}</strong></div>
-              <div><span>Status</span><StatusBadge status={selectedLead.status} /></div>
-              <div><span>Date added</span><strong>{selectedLead.date}</strong></div>
-            </div>
 
-            <div className="modal-actions">
-              <button className="secondary-button" onClick={() => setSelectedLead(null)}>
-                Close
-              </button>
-              <button className="primary-button" onClick={() => updateLeadStatus(selectedLead)}>
-                {selectedLead.status === "New" ? "Mark contacted" : "Mark follow up"}
-              </button>
-            </div>
-          </section>
+      {notice && (
+        <div className="toast" role="status" aria-live="polite">
+          <Icon name="check" /> {notice}
         </div>
       )}
     </main>
