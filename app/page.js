@@ -6,6 +6,7 @@ import AddLeadModal from "./components/AddLeadModal";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
 import StatusBadge from "./components/StatusBadge";
+import { createClient } from "../utils/supabase/client";
 import {
   CLOSED_STATUSES,
   STATUSES,
@@ -18,12 +19,29 @@ import {
   getGreeting,
   makeActivity,
   ensureActivity,
-  nextLeadCode,
   parseDate,
   toInputValue,
 } from "./lib/leads";
 
-import { sampleLeads } from "./lib/sampleLeads";
+function mapLeadRecord(record) {
+  return {
+    ...record,
+    id: record.id,
+    lead_code: record.lead_code || String(record.id),
+    full_name: record.full_name || "",
+    phone: record.phone || "",
+    email: record.email || "",
+    source: record.source || "Other",
+    assigned_staff: record.assigned_staff || "",
+    status: record.status || "New",
+    next_follow_up_at: record.next_follow_up_at || "",
+    service_interest: record.service_interest || "",
+    not_converted_reason: record.not_converted_reason || "",
+    notes: record.notes || "",
+    activity: Array.isArray(record.activity) ? record.activity : [],
+  };
+}
+
 const navigation = [
   { name: "Dashboard", icon: "dashboard" },
   { name: "Leads", icon: "users" },
@@ -147,15 +165,52 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
 
 export default function DashboardPage() {
   const [activePage, setActivePage] = useState("Dashboard");
-  const [leads, setLeads] = useState(sampleLeads);
+  const [leads, setLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(true);
+  const [leadsError, setLeadsError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [createLeadError, setCreateLeadError] = useState("");
   // The clock is set after mount so server and browser markup always match.
   const [now, setNow] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLeads() {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("leads")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) throw error;
+        if (!Array.isArray(data)) throw new Error("Supabase returned an invalid leads response.");
+
+        if (!cancelled) {
+          setLeads(data.map(mapLeadRecord));
+          setLeadsError("");
+        }
+      } catch (error) {
+        console.error("Failed to load leads from Supabase:", error);
+        if (!cancelled) {
+          setLeadsError("Could not load leads from Supabase. Please check your connection.");
+        }
+      } finally {
+        if (!cancelled) setLeadsLoading(false);
+      }
+    }
+
+    loadLeads();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setNow(new Date());
@@ -330,6 +385,7 @@ const filteredLeads = useMemo(() => {
 
   function openAddForm() {
     setSelectedLeadId(null);
+    setCreateLeadError("");
     setShowForm(true);
   }
 
@@ -343,36 +399,58 @@ const filteredLeads = useMemo(() => {
     setSelectedLeadId(null);
   }
 
-  function handleCreateLead(values, { addAnother = false } = {}) {
-    const stamp = new Date().toISOString();
-    const code = nextLeadCode(leads);
-    const activity = [makeActivity("created", `Lead created from ${values.source}`)];
+  async function handleCreateLead(values, { addAnother = false } = {}) {
+    setCreateLeadError("");
 
-    if (values.next_follow_up_at) {
-      activity.push(
-        makeActivity("followup", `Follow up scheduled for ${formatDateTime(values.next_follow_up_at)}`)
-      );
-    }
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          full_name: values.full_name,
+          phone: values.phone,
+          email: values.email || null,
+          source: values.source,
+          service_interest: values.service_interest,
+          notes: values.notes || null,
+          assigned_staff: values.assigned_staff || null,
+          next_follow_up_at: values.next_follow_up_at
+            ? parseDate(values.next_follow_up_at)?.toISOString() || null
+            : null,
+          status: "New",
+        })
+        .select("*")
+        .single();
 
-    const lead = {
-      id: `local-${Date.now()}`,
-      lead_code: code,
-      ...values,
-      status: "New",
-      not_converted_reason: "",
-      created_at: stamp,
-      updated_at: stamp,
-      activity,
-    };
+      if (error) throw error;
+      if (!data) throw new Error("Supabase returned no saved lead.");
 
-    setLeads((current) => [lead, ...current]);
-    setNotice(`${lead.full_name} added as ${lead.lead_code}`);
+      const activity = [makeActivity("created", `Lead created from ${values.source}`)];
+      if (values.next_follow_up_at) {
+        activity.push(
+          makeActivity("followup", `Follow up scheduled for ${formatDateTime(values.next_follow_up_at)}`)
+        );
+      }
 
-    if (!addAnother) {
-      setShowForm(false);
-      setStatusFilter("All");
-      setSearch("");
-      navigateTo("Leads");
+      const lead = mapLeadRecord({
+        ...data,
+        activity: Array.isArray(data.activity) && data.activity.length > 0 ? data.activity : activity,
+      });
+      setLeads((current) => [lead, ...current]);
+      setNotice(`${lead.full_name} added as ${lead.lead_code}`);
+
+      if (!addAnother) {
+        setShowForm(false);
+        setStatusFilter("All");
+        setSearch("");
+        navigateTo("Leads");
+      }
+      return true;
+    } catch (error) {
+      console.error("Failed to create lead in Supabase:", error);
+      const detail = error instanceof Error ? error.message : "Unexpected error.";
+      setCreateLeadError(`Could not save this lead. ${detail}`);
+      return false;
     }
   }
 
@@ -457,7 +535,19 @@ const filteredLeads = useMemo(() => {
             </thead>
 
             <tbody>
-              {rows.map((lead) => (
+              {leadsLoading && (
+                <tr>
+                  <td colSpan={8} role="status">Loading leads from Supabase...</td>
+                </tr>
+              )}
+
+              {!leadsLoading && leadsError && (
+                <tr>
+                  <td colSpan={8} role="alert">{leadsError}</td>
+                </tr>
+              )}
+
+              {!leadsLoading && !leadsError && rows.map((lead) => (
                 <tr key={lead.id} onClick={() => openLead(lead)}>
                   <td>
                     <div className="person-cell">
@@ -491,7 +581,7 @@ const filteredLeads = useMemo(() => {
                 </tr>
               ))}
 
-              {rows.length === 0 && (
+              {!leadsLoading && !leadsError && rows.length === 0 && (
                 <tr className="empty-row">
                   <td colSpan={8}>
                     <div className="empty-state">
@@ -1118,6 +1208,7 @@ const filteredLeads = useMemo(() => {
           staffOptions={staffOptions}
           onClose={() => setShowForm(false)}
           onCreate={handleCreateLead}
+          createError={createLeadError}
         />
       )}
 
