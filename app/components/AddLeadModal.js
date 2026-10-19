@@ -87,10 +87,17 @@ function validate(values, leads) {
   return errors;
 }
 
-export default function AddLeadModal({ leads, staffOptions = [], onClose, onCreate }) {
+export default function AddLeadModal({
+  leads,
+  staffOptions = [],
+  onClose,
+  onCreate,
+  createError = "",
+}) {
   const [values, setValues] = useState(initialValues);
   const [touched, setTouched] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const nameRef = useRef(null);
 
   const errors = useMemo(() => validate(values, leads), [values, leads]);
@@ -103,11 +110,13 @@ export default function AddLeadModal({ leads, staffOptions = [], onClose, onCrea
   const visibleError = (field) => (touched[field] || submitted ? errors[field] : undefined);
 
   function requestClose() {
+    if (isSaving) return;
     if (isDirty && !window.confirm("Discard this lead? What you have entered will be lost.")) return;
     onClose();
   }
 
-  function submit(addAnother) {
+  async function submit(addAnother) {
+    if (isSaving) return;
     setSubmitted(true);
 
     if (errorCount > 0) {
@@ -116,23 +125,30 @@ export default function AddLeadModal({ leads, staffOptions = [], onClose, onCrea
       return;
     }
 
-    onCreate(
-      {
-        ...values,
-        full_name: values.full_name.trim(),
-        phone: values.phone.trim(),
-        email: values.email.trim(),
-        notes: values.notes.trim(),
-        assigned_staff: values.assigned_staff.trim(),
-      },
-      { addAnother }
-    );
+    setIsSaving(true);
+    try {
+      const created = await onCreate(
+        {
+          ...values,
+          full_name: values.full_name.trim(),
+          phone: values.phone.trim(),
+          email: values.email.trim(),
+          notes: values.notes.trim(),
+          assigned_staff: values.assigned_staff.trim(),
+        },
+        { addAnother }
+      );
 
-    if (addAnother) {
-      setValues(initialValues);
-      setTouched({});
-      setSubmitted(false);
-      nameRef.current?.focus();
+      if (created === false) return;
+
+      if (addAnother) {
+        setValues(initialValues);
+        setTouched({});
+        setSubmitted(false);
+        nameRef.current?.focus();
+      }
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -172,7 +188,7 @@ export default function AddLeadModal({ leads, staffOptions = [], onClose, onCrea
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          submit(false);
+          void submit(false);
         }}
       >
         <div className="al-body">
@@ -318,17 +334,23 @@ export default function AddLeadModal({ leads, staffOptions = [], onClose, onCrea
             <span className="footer-meta footer-error" role="alert">
               Please fix {errorCount} field{errorCount > 1 ? "s" : ""} to continue.
             </span>
+          ) : createError ? (
+            <span className="footer-meta footer-error" role="alert">
+              {createError}
+            </span>
+          ) : isSaving ? (
+            <span className="footer-meta" role="status">Saving lead...</span>
           ) : (
             <span className="footer-meta">Fields marked * are required.</span>
           )}
-          <button type="button" className="secondary-button" onClick={requestClose}>
+          <button type="button" className="secondary-button" onClick={requestClose} disabled={isSaving}>
             Cancel
           </button>
-          <button type="button" className="secondary-button" onClick={() => submit(true)}>
+          <button type="button" className="secondary-button" onClick={() => void submit(true)} disabled={isSaving}>
             Save &amp; add another
           </button>
-          <button type="submit" className="primary-button">
-            Save lead
+          <button type="submit" className="primary-button" disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save lead"}
           </button>
         </div>
       </form>

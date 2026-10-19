@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AddLeadModal from "./components/AddLeadModal";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
@@ -17,8 +17,6 @@ import {
   formatTime,
   getFollowUpState,
   getGreeting,
-  makeActivity,
-  ensureActivity,
   parseDate,
   toInputValue,
 } from "./lib/leads";
@@ -40,6 +38,71 @@ function mapLeadRecord(record) {
     notes: record.notes || "",
     activity: Array.isArray(record.activity) ? record.activity : [],
   };
+}
+
+// Columns we read from public.lead_activities (no invented columns).
+const ACTIVITY_COLUMNS = "id, lead_id, activity_type, staff_member, occurred_at, notes, outcome, created_at";
+
+// Maps a lead_activities database row to the shape the activity timeline renders.
+function mapActivityRecord(record) {
+  return {
+    id: record.id, // React key
+    type: record.activity_type || "Note", // displayed activity type
+    staff: record.staff_member || "", // displayed staff member
+    at: record.occurred_at, // activity date and time
+    text: record.notes || "", // displayed notes
+    outcome: record.outcome || "", // displayed outcome
+    source: "database",
+  };
+}
+
+// System-generated history events are stored in lead_activities (the same table as staff-logged activities)
+// using these activity_type values. The modal maps the old local entry types to them.
+const SYSTEM_EVENT_TYPES = {
+  created: "Lead created",
+  status: "Status change",
+  followup: "Follow-up",
+  update: "Lead update",
+};
+
+function newId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = (Math.random() * 16) | 0;
+    return (char === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
+// Converts a value from the UI into what the leads table stores.
+function toDbValue(key, value) {
+  if (key === "next_follow_up_at") return value ? parseDate(value)?.toISOString() || null : null;
+  if (["assigned_staff", "not_converted_reason", "notes"].includes(key)) return value ? value : null;
+  return value;
+}
+
+// True when the lead's current value already equals the new UI value (so there is nothing to send).
+function sameLeadValue(key, current, next) {
+  if (key === "next_follow_up_at") {
+    const a = current ? parseDate(current) : null;
+    const b = next ? parseDate(next) : null;
+    return (a ? a.getTime() : null) === (b ? b.getTime() : null);
+  }
+  return (current || "") === (next || "");
+}
+
+// Turns a Supabase error into a short message for staff. Full details go to the console.
+function describeSaveError(error) {
+  const code = error && error.code;
+  if (code === "PGRST116") {
+    return "Supabase did not update this lead. It may have been deleted, or you may not have permission to edit it.";
+  }
+  if (code === "42501") {
+    return "You do not have permission to save this change. Please ask your administrator to check access.";
+  }
+  if (code === "PGRST204" || code === "42703") {
+    return "The leads table is missing a column this change needs. Please ask your administrator to check the database.";
+  }
+  return "Could not save your changes. Nothing was lost on screen, so please try again.";
 }
 
 const navigation = [
@@ -174,7 +237,17 @@ export default function DashboardPage() {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState("success");
+  const [activityRevisions, setActivityRevisions] = useState({});
+  // Which tab the lead drawer opens on, and which leads have a follow up action saving right now.
+  const [selectedLeadTab, setSelectedLeadTab] = useState("overview");
+  const [followUpBusyIds, setFollowUpBusyIds] = useState([]);
+  const followUpBusyRef = useRef(new Set());
   const [createLeadError, setCreateLeadError] = useState("");
+  // Column names seen on the leads table, so we only write columns that really exist.
+  const leadColumnsRef = useRef(null);
+  // Lead ids with an update in flight, to block double clicks.
+  const busyLeadIdsRef = useRef(new Set());
   // The clock is set after mount so server and browser markup always match.
   const [now, setNow] = useState(null);
 
@@ -193,6 +266,7 @@ export default function DashboardPage() {
         if (!Array.isArray(data)) throw new Error("Supabase returned an invalid leads response.");
 
         if (!cancelled) {
+          if (data.length > 0) leadColumnsRef.current = new Set(Object.keys(data[0]));
           setLeads(data.map(mapLeadRecord));
           setLeadsError("");
         }
@@ -363,24 +437,104 @@ const filteredLeads = useMemo(() => {
     navigateTo("Leads");
   }
 
-  // Updates a lead and appends any activity entries ({ type, text }) to its history.
-  function patchLead(id, changes, entries = []) {
-    const stamp = new Date().toISOString();
-    setLeads((current) =>
-      current.map((lead) =>
-        lead.id === id
-          ? {
-              ...lead,
-              ...changes,
-              updated_at: stamp,
-              activity: [
-                ...ensureActivity(lead),
-                ...entries.map((entry) => makeActivity(entry.type, entry.text)),
-              ],
-            }
-          : lead
-      )
-    );
+  // Shows the toast. Failures use the "error" tone.
+  function flash(message, tone = "success") {
+    setNoticeTone(tone);
+    setNotice(message);
+  }
+
+  // Writes history events ({ type, text }) to lead_activities in one insert. Resolves to true only if Supabase confirmed it.
+  async function saveLeadEvents(leadId, entries) {
+    if (!entries || entries.length === 0) return true;
+
+    try {
+      const supabase = createClient();
+      const base = Date.now();
+      const rows = entries.map((entry, index) => {
+        // One millisecond apart so events from the same save keep a stable order.
+        const stamp = new Date(base + index).toISOString();
+        return {
+          id: newId(),
+          lead_id: leadId,
+          activity_type: SYSTEM_EVENT_TYPES[entry.type] || SYSTEM_EVENT_TYPES.update,
+          staff_member: null,
+          occurred_at: stamp,
+          notes: entry.text || null,
+          outcome: null,
+          created_at: stamp,
+        };
+      });
+
+      const { error } = await supabase.from("lead_activities").insert(rows);
+      if (error) throw error;
+
+      // Tells an open lead drawer to reload its history.
+      setActivityRevisions((current) => ({ ...current, [leadId]: (current[leadId] || 0) + 1 }));
+      return true;
+    } catch (error) {
+      console.error("Failed to save history entries to lead_activities:", error);
+      return false;
+    }
+  }
+
+  // Saves lead changes to Supabase, then records history events. The screen only changes after the
+  // leads row is confirmed. Resolves to { ok, message, eventsSaved }.
+  async function persistLeadUpdate(lead, changes, entries = []) {
+    if (busyLeadIdsRef.current.has(lead.id)) {
+      return { ok: false, message: "Another update to this lead is still saving. Please wait a moment." };
+    }
+    busyLeadIdsRef.current.add(lead.id);
+
+    try {
+      const columns = leadColumnsRef.current;
+      const payload = {};
+
+      for (const [key, value] of Object.entries(changes)) {
+        if (sameLeadValue(key, lead[key], value)) continue;
+        const dbValue = toDbValue(key, value);
+        if (columns && !columns.has(key)) {
+          if (dbValue === null || dbValue === "") continue; // clearing a column that does not exist is a no-op
+          console.error(`The leads table has no "${key}" column, so this change cannot be saved.`);
+          return { ok: false, message: "The leads table is missing a column this change needs. Please ask your administrator to check the database." };
+        }
+        payload[key] = dbValue;
+      }
+
+      // Only touch updated_at if the column exists; the database may also maintain it itself.
+      if (Object.keys(payload).length > 0 && columns && columns.has("updated_at")) {
+        payload.updated_at = new Date().toISOString();
+      }
+
+      if (Object.keys(payload).length > 0) {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("leads")
+          .update(payload)
+          .eq("id", lead.id)
+          .select("*")
+          .single();
+
+        if (error) {
+          console.error("Failed to update lead in Supabase:", error);
+          return { ok: false, message: describeSaveError(error) };
+        }
+        if (!data) return { ok: false, message: "Supabase returned no updated lead. Please try again." };
+
+        const saved = mapLeadRecord({
+          ...data,
+          activity: Array.isArray(data.activity) ? data.activity : lead.activity,
+        });
+        setLeads((current) => current.map((item) => (item.id === lead.id ? saved : item)));
+      }
+
+      const eventsSaved = await saveLeadEvents(lead.id, entries);
+      return { ok: true, eventsSaved };
+    } catch (error) {
+      console.error("Unexpected error while saving lead:", error);
+      return { ok: false, message: describeSaveError(error) };
+    } finally {
+      busyLeadIdsRef.current.delete(lead.id);
+    }
   }
 
   function openAddForm() {
@@ -389,8 +543,9 @@ const filteredLeads = useMemo(() => {
     setShowForm(true);
   }
 
-  function openLead(lead) {
+  function openLead(lead, tab = "overview") {
     setShowForm(false);
+    setSelectedLeadTab(tab);
     setSelectedLeadId(lead.id);
   }
 
@@ -425,19 +580,21 @@ const filteredLeads = useMemo(() => {
       if (error) throw error;
       if (!data) throw new Error("Supabase returned no saved lead.");
 
-      const activity = [makeActivity("created", `Lead created from ${values.source}`)];
-      if (values.next_follow_up_at) {
-        activity.push(
-          makeActivity("followup", `Follow up scheduled for ${formatDateTime(values.next_follow_up_at)}`)
-        );
-      }
-
-      const lead = mapLeadRecord({
-        ...data,
-        activity: Array.isArray(data.activity) && data.activity.length > 0 ? data.activity : activity,
-      });
+      const lead = mapLeadRecord(data);
       setLeads((current) => [lead, ...current]);
-      setNotice(`${lead.full_name} added as ${lead.lead_code}`);
+
+      // The lead itself is saved. Record its starting history in lead_activities.
+      const events = [{ type: "created", text: `Lead created from ${values.source}` }];
+      if (values.next_follow_up_at) {
+        events.push({
+          type: "followup",
+          text: `Follow up scheduled for ${formatDateTime(values.next_follow_up_at)}`,
+        });
+      }
+      const eventsSaved = await saveLeadEvents(lead.id, events);
+
+      if (eventsSaved) flash(`${lead.full_name} added as ${lead.lead_code}`);
+      else flash(`${lead.full_name} was saved, but its history entry could not be recorded.`, "error");
 
       if (!addAnother) {
         setShowForm(false);
@@ -454,25 +611,34 @@ const filteredLeads = useMemo(() => {
     }
   }
 
-  function handleSaveLead(id, changes, entries) {
+  // Called by the lead drawer. Resolves to { ok, message } so the drawer can keep the form open on failure.
+  async function handleSaveLead(id, changes, entries) {
     const lead = leads.find((item) => item.id === id);
-    patchLead(id, changes, entries);
-    setNotice(`${lead ? lead.full_name : "Lead"} updated`);
-  }
+    if (!lead) return { ok: false, message: "This lead is no longer in the list. Please refresh the page." };
 
-  function handleAddNote(id, text) {
-    patchLead(id, {}, [{ type: "note", text }]);
-    setNotice("Note added");
+    const result = await persistLeadUpdate(lead, changes, entries);
+    if (!result.ok) return result;
+
+    const outcome =
+      changes.status === "Converted" && lead.status !== "Converted"
+        ? "converted"
+        : changes.status === "Lost" && lead.status !== "Lost"
+          ? "marked as lost"
+          : "updated";
+
+    if (result.eventsSaved) flash(`${lead.full_name} ${outcome}`);
+    else flash(`${lead.full_name} was ${outcome}, but the history entry could not be recorded.`, "error");
+    return result;
   }
 
   function handleDeleteLead(id) {
     const lead = leads.find((item) => item.id === id);
     setLeads((current) => current.filter((item) => item.id !== id));
-    setNotice(`${lead ? lead.full_name : "Lead"} deleted`);
+    flash(`${lead ? lead.full_name : "Lead"} deleted from this screen only. It is not removed from Supabase yet.`, "error");
     closeDialogs();
   }
 
-  function completeFollowUp(lead) {
+  async function completeFollowUp(lead) {
     const nextStatus = ["New", "Follow Up"].includes(lead.status) ? "Contacted" : lead.status;
     const entries = [{ type: "followup", text: "Follow up marked as done" }];
 
@@ -480,22 +646,109 @@ const filteredLeads = useMemo(() => {
       entries.push({ type: "status", text: `Status changed from ${lead.status} to ${nextStatus}` });
     }
 
-    patchLead(lead.id, { status: nextStatus, next_follow_up_at: "" }, entries);
-    setNotice(`Follow up with ${lead.full_name} marked as done`);
+    const result = await persistLeadUpdate(lead, { status: nextStatus, next_follow_up_at: "" }, entries);
+    if (!result.ok) {
+      flash(result.message, "error");
+      return;
+    }
+    if (result.eventsSaved) flash(`Follow up with ${lead.full_name} marked as done`);
+    else flash(`Follow up with ${lead.full_name} saved, but the history entry could not be recorded.`, "error");
   }
 
-  function snoozeFollowUp(lead) {
+  // Runs "Done" / "Tomorrow" for one lead at a time, so a double click cannot save twice.
+  async function runFollowUpAction(lead, action) {
+    if (followUpBusyRef.current.has(lead.id)) return;
+    followUpBusyRef.current.add(lead.id);
+    setFollowUpBusyIds((ids) => [...ids, lead.id]);
+    try {
+      await action(lead);
+    } finally {
+      followUpBusyRef.current.delete(lead.id);
+      setFollowUpBusyIds((ids) => ids.filter((id) => id !== lead.id));
+    }
+  }
+
+  async function snoozeFollowUp(lead) {
     const original = parseDate(lead.next_follow_up_at) || new Date();
     const target = new Date(now || new Date());
     target.setDate(target.getDate() + 1);
     target.setHours(original.getHours(), original.getMinutes(), 0, 0);
 
-    patchLead(lead.id, { next_follow_up_at: toInputValue(target) }, [
+    const result = await persistLeadUpdate(lead, { next_follow_up_at: toInputValue(target) }, [
       { type: "followup", text: `Follow up moved to ${formatDateTime(toInputValue(target))}` },
     ]);
-    setNotice(`${lead.full_name} moved to tomorrow`);
+    if (!result.ok) {
+      flash(result.message, "error");
+      return;
+    }
+    if (result.eventsSaved) flash(`${lead.full_name} moved to tomorrow`);
+    else flash(`${lead.full_name} moved, but the history entry could not be recorded.`, "error");
   }
 
+
+  /* ----- lead_activities (Supabase) ----- */
+
+  // Loads one lead's logged activities, newest first. Throws on failure so the modal can show an error state.
+  async function loadLeadActivities(leadId) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("lead_activities")
+      .select(ACTIVITY_COLUMNS)
+      .eq("lead_id", leadId)
+      .order("occurred_at", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to load lead activities from Supabase:", error);
+      throw error;
+    }
+    if (!Array.isArray(data)) throw new Error("Supabase returned an invalid activities response.");
+    return data.map(mapActivityRecord);
+  }
+
+  // Inserts one activity. Resolves to { ok: true, activity } only after Supabase confirms the row.
+  // `values.id` is generated by the form so a retry after a failure reuses the same id.
+  async function logLeadActivity(lead, values) {
+    try {
+      const occurredAt = parseDate(values.occurred_at);
+      if (!occurredAt) return { ok: false, message: "Enter a valid date and time." };
+
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("lead_activities")
+        .insert({
+          // id and created_at are sent explicitly because their database defaults are unverified.
+          id: values.id,
+          lead_id: lead.id,
+          activity_type: values.activity_type,
+          staff_member: values.staff_member || null,
+          occurred_at: occurredAt.toISOString(),
+          notes: values.notes || null,
+          outcome: values.outcome || null,
+          created_at: new Date().toISOString(),
+        })
+        .select(ACTIVITY_COLUMNS)
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("Supabase returned no saved activity.");
+
+      flash(`${values.activity_type} logged for ${lead.full_name}`);
+      return { ok: true, activity: mapActivityRecord(data) };
+    } catch (error) {
+      console.error("Failed to save lead activity to Supabase:", error);
+      const code = error && error.code;
+      let message = "Could not save this activity. Your entry is still here, so please try again.";
+      if (code === "42501") {
+        message = "You do not have permission to save activities. Please ask your administrator to check access.";
+      } else if (code === "23503") {
+        message = "This lead could not be found in the database, so the activity was not saved.";
+      } else if (code === "23505") {
+        message = "This activity may already have been saved. Reopen the Activity tab to check.";
+      }
+      return { ok: false, message };
+    }
+  }
 
   /* ----- shared renderers ----- */
 
@@ -506,8 +759,11 @@ const filteredLeads = useMemo(() => {
       return <span className="muted-cell">—</span>;
     }
 
+    // Overdue, due today and upcoming each get their own tint; the title tells the same story as text.
+    const tone = state === "overdue" ? "due-overdue" : state === "today" ? "due-today" : "";
+
     return (
-      <span className={`due-chip ${state === "overdue" ? "due-overdue" : ""}`}>
+      <span className={`due-chip ${tone}`} title={dueLabel(lead, now)}>
         {formatShort(lead.next_follow_up_at)}
       </span>
     );
@@ -653,15 +909,23 @@ const filteredLeads = useMemo(() => {
               <div className="fu-actions">
                 {lead.next_follow_up_at ? (
                   <>
-                    <button className="mini-button primary" onClick={() => completeFollowUp(lead)}>
+                    <button
+                      className="mini-button primary"
+                      disabled={followUpBusyIds.includes(lead.id)}
+                      onClick={() => runFollowUpAction(lead, completeFollowUp)}
+                    >
                       <Icon name="check" /> Done
                     </button>
-                    <button className="mini-button" onClick={() => snoozeFollowUp(lead)}>
+                    <button
+                      className="mini-button"
+                      disabled={followUpBusyIds.includes(lead.id)}
+                      onClick={() => runFollowUpAction(lead, snoozeFollowUp)}
+                    >
                       Tomorrow
                     </button>
                   </>
                 ) : null}
-                <button className="mini-button" onClick={() => openLead(lead)}>
+                <button className="mini-button" onClick={() => openLead(lead, lead.next_follow_up_at ? "overview" : "edit")}>
                   {lead.next_follow_up_at ? "Open" : "Schedule"}
                 </button>
               </div>
@@ -1220,17 +1484,26 @@ const filteredLeads = useMemo(() => {
           staffOptions={staffOptions}
           onClose={() => setSelectedLeadId(null)}
           onSave={handleSaveLead}
-          onAddNote={handleAddNote}
+          onLoadActivities={loadLeadActivities}
+          onLogActivity={logLeadActivity}
+          activityRevision={activityRevisions[selectedLead.id] || 0}
+          initialTab={selectedLeadTab}
+          followUpBusy={followUpBusyIds.includes(selectedLead.id)}
           onDelete={handleDeleteLead}
-          onCompleteFollowUp={completeFollowUp}
-          onSnoozeFollowUp={snoozeFollowUp}
+          onCompleteFollowUp={(item) => runFollowUpAction(item, completeFollowUp)}
+          onSnoozeFollowUp={(item) => runFollowUpAction(item, snoozeFollowUp)}
         />
       )}
 
 
       {notice && (
-        <div className="toast" role="status" aria-live="polite">
-          <Icon name="check" /> {notice}
+        <div
+          className="toast"
+          role={noticeTone === "error" ? "alert" : "status"}
+          aria-live="polite"
+          style={noticeTone === "error" ? { background: "#8c3b2d" } : undefined}
+        >
+          <Icon name={noticeTone === "error" ? "info" : "check"} /> {notice}
         </div>
       )}
     </main>

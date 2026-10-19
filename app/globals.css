@@ -2292,6 +2292,7 @@ body {
 }
 
 .due-chip.due-overdue { background: #f4e4df; color: #955344; }
+.due-chip.due-today { background: #f6e3c3; color: var(--gold); font-weight: 600; }
 .due-text-overdue { color: #955344 !important; }
 
 /* Follow ups page */
@@ -3254,3 +3255,22 @@ body {
   .al-footer .footer-meta { flex-basis: 100%; }
   .al-footer .primary-button, .al-footer .secondary-button { flex: 1 1 auto; }
 }
+
+/* Day 8: convert / mark as lost */
+.stage-lost strong { display: block; font-size: 13px; font-weight: 600; }
+.stage-lost .lost-reason { display: block; margin-top: 4px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.outcome-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.mini-button.danger { border-color: #ecc9bf; color: #955344; }
+.mini-button.danger:hover { background: #f8e9e4; }
+.outcome-confirm {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffdf9;
+}
+.outcome-confirm strong { color: var(--brown); font-size: 14px; font-weight: 600; }
+.outcome-confirm p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.outcome-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
