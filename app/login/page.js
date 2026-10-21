@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   async function handleLogin(event) {
     event.preventDefault()
@@ -39,6 +40,31 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
+
+  async function handleGoogleLogin() {
+  setError('')
+  setGoogleLoading(true)
+
+  try {
+    const supabase = createClient()
+
+    const { error: googleError } =
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+    if (googleError) {
+      setError('Google sign-in could not start. Please try again.')
+      setGoogleLoading(false)
+    }
+  } catch {
+    setError('Something went wrong with Google sign-in.')
+    setGoogleLoading(false)
+  }
+}
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -92,11 +118,29 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || googleLoading}
             className="w-full rounded-lg bg-purple-700 px-4 py-3 font-semibold text-white hover:bg-purple-800 disabled:opacity-60"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
+
+          <div className="my-5 flex items-center gap-3 text-sm text-gray-500">
+  <span className="h-px flex-1 bg-gray-200" />
+  <span>or continue with</span>
+  <span className="h-px flex-1 bg-gray-200" />
+</div>
+
+<button
+  type="button"
+  onClick={handleGoogleLogin}
+  disabled={loading || googleLoading}
+  className="flex w-full items-center justify-center gap-3 rounded-lg border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-60"
+>
+  <span className="text-xl font-bold text-blue-600" aria-hidden="true">
+    G
+  </span>
+  {googleLoading ? 'Connecting to Google...' : 'Continue with Google'}
+</button>
         </form>
       </div>
     </main>
