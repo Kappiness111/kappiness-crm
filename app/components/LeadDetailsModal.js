@@ -326,6 +326,10 @@ export default function LeadDetailsModal({
   async function confirmOutcome(event) {
     event.preventDefault();
     if (outcomeSavingRef.current || !outcomeAction) return; // block duplicate submissions
+    if (CLOSED_STATUSES.includes(lead.status)) {
+      setOutcomeError("This lead is already closed. Its status cannot be changed again.");
+      return;
+    }
     const status = outcomeAction === "convert" ? "Converted" : "Lost";
 
     if (lead.status === status) {
@@ -394,6 +398,11 @@ export default function LeadDetailsModal({
     const first = ["next_follow_up_at", "notes", "not_converted_reason"].find((field) => errors[field]);
     if (first) {
       document.getElementById(`edit-${first}`)?.focus();
+      return;
+    }
+
+    if (draft.status !== lead.status && (CLOSED_STATUSES.includes(draft.status) || CLOSED_STATUSES.includes(lead.status))) {
+      setEditSaveError("Use the Convert or Mark as lost confirmation on the Overview tab to change a lead to a closed status.");
       return;
     }
 
@@ -686,16 +695,14 @@ export default function LeadDetailsModal({
                     </div>
                   </form>
                 ) : (
-                  lead.status !== "Converted" && (
+                  !closed && (
                     <div className="outcome-actions">
                       <button type="button" className="mini-button primary" onClick={() => openOutcome("convert")}>
                         <Icon name="check" /> Convert lead
                       </button>
-                      {lead.status !== "Lost" && (
-                        <button type="button" className="mini-button danger" onClick={() => openOutcome("lost")}>
-                          Mark as lost
-                        </button>
-                      )}
+                      <button type="button" className="mini-button danger" onClick={() => openOutcome("lost")}>
+                        Mark as lost
+                      </button>
                     </div>
                   )
                 )}
@@ -879,8 +886,13 @@ export default function LeadDetailsModal({
 
               <div className="field-grid">
                 <Field id="edit-status" label="Status">
-                  <select {...props("status")} value={draft.status} onChange={onChange("status")}>
-                    {STATUSES.map((status) => (
+                  <select
+                    {...props("status")}
+                    value={draft.status}
+                    disabled={CLOSED_STATUSES.includes(lead.status)}
+                    onChange={onChange("status")}
+                  >
+                    {STATUSES.filter((status) => !CLOSED_STATUSES.includes(status) || status === lead.status).map((status) => (
                       <option key={status}>{status}</option>
                     ))}
                   </select>
