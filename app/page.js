@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AddLeadModal from "./components/AddLeadModal";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
+import ModalShell from "./components/ModalShell";
 import StatusBadge from "./components/StatusBadge";
 import { createClient } from "../utils/supabase/client";
 import {
@@ -235,6 +236,9 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [showForm, setShowForm] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState(null);
+  const [selectedLeadRecord, setSelectedLeadRecord] = useState(null);
+  const [selectedLeadLoading, setSelectedLeadLoading] = useState(false);
+  const [selectedLeadError, setSelectedLeadError] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState("success");
@@ -248,6 +252,7 @@ export default function DashboardPage() {
   const leadColumnsRef = useRef(null);
   // Lead ids with an update in flight, to block double clicks.
   const busyLeadIdsRef = useRef(new Set());
+  const leadDetailRequestRef = useRef(0);
   // The clock is set after mount so server and browser markup always match.
   const [now, setNow] = useState(null);
 
@@ -298,7 +303,7 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const selectedLead = leads.find((lead) => lead.id === selectedLeadId) || null;
+  const selectedLead = selectedLeadRecord?.id === selectedLeadId ? selectedLeadRecord : null;
 
 
   /* ----- derived data ----- */
@@ -419,7 +424,7 @@ const filteredLeads = useMemo(() => {
   function navigateTo(page) {
     setActivePage(page);
     setMobileMenuOpen(false);
-    setSelectedLeadId(null);
+    closeLeadDetails();
     if (typeof window !== "undefined") window.scrollTo({ top: 0 });
   }
 
@@ -477,8 +482,8 @@ const filteredLeads = useMemo(() => {
     }
   }
 
-  // Saves lead changes to Supabase, then records history events. The screen only changes after the
-  // leads row is confirmed. Resolves to { ok, message, eventsSaved }.
+  // Saves lead changes and their history atomically when both are present. Resolves to
+  // { ok, message, eventsSaved }.
   async function persistLeadUpdate(lead, changes, entries = []) {
     if (busyLeadIdsRef.current.has(lead.id)) {
       return { ok: false, message: "Another update to this lead is still saving. Please wait a moment." };
@@ -505,6 +510,43 @@ const filteredLeads = useMemo(() => {
         payload.updated_at = new Date().toISOString();
       }
 
+      if (entries.length > 0 && Object.keys(payload).length === 0) {
+        return { ok: false, message: "No lead fields were saved, so the matching history entry was not recorded. Please refresh and try again." };
+      }
+
+      const hasAtomicHistory = Object.keys(payload).length > 0 && entries.length > 0;
+      if (hasAtomicHistory) {
+        const supabase = createClient();
+        const { data, error } = await supabase.rpc("update_lead_with_history", {
+          p_lead_id: lead.id,
+          p_expected_status: lead.status,
+          p_changes: payload,
+          p_events: entries,
+        });
+
+        if (error) {
+          console.error("Failed to update lead status and history atomically:", error);
+          return {
+            ok: false,
+            message: error.code === "P0001"
+              ? error.message
+              : describeSaveError(error),
+          };
+        }
+        if (!data?.ok || !data.lead) {
+          return { ok: false, message: data?.message || "Supabase returned no updated lead. Please refresh and try again." };
+        }
+
+        const saved = mapLeadRecord({
+          ...data.lead,
+          activity: Array.isArray(data.lead.activity) ? data.lead.activity : lead.activity,
+        });
+        setLeads((current) => current.map((item) => (item.id === lead.id ? saved : item)));
+        setSelectedLeadRecord((current) => (current?.id === lead.id ? saved : current));
+        setActivityRevisions((current) => ({ ...current, [lead.id]: (current[lead.id] || 0) + 1 }));
+        return { ok: true, eventsSaved: true };
+      }
+
       if (Object.keys(payload).length > 0) {
         const supabase = createClient();
         const { data, error } = await supabase
@@ -525,6 +567,7 @@ const filteredLeads = useMemo(() => {
           activity: Array.isArray(data.activity) ? data.activity : lead.activity,
         });
         setLeads((current) => current.map((item) => (item.id === lead.id ? saved : item)));
+        setSelectedLeadRecord((current) => (current?.id === lead.id ? saved : current));
       }
 
       const eventsSaved = await saveLeadEvents(lead.id, entries);
@@ -538,7 +581,7 @@ const filteredLeads = useMemo(() => {
   }
 
   function openAddForm() {
-    setSelectedLeadId(null);
+    closeLeadDetails();
     setCreateLeadError("");
     setShowForm(true);
   }
@@ -547,11 +590,56 @@ const filteredLeads = useMemo(() => {
     setShowForm(false);
     setSelectedLeadTab(tab);
     setSelectedLeadId(lead.id);
+    setSelectedLeadRecord(null);
+    setSelectedLeadLoading(true);
+    setSelectedLeadError("");
+
+    const requestId = ++leadDetailRequestRef.current;
+    async function fetchLead() {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("leads")
+          .select("*")
+          .eq("id", lead.id)
+          .maybeSingle();
+
+        if (requestId !== leadDetailRequestRef.current) return;
+        if (error) throw error;
+        if (!data) throw new Error("This lead could not be found. It may have been deleted.");
+
+        const freshLead = mapLeadRecord(data);
+        setLeads((current) => {
+          const exists = current.some((item) => item.id === freshLead.id);
+          return exists
+            ? current.map((item) => (item.id === freshLead.id ? freshLead : item))
+            : [freshLead, ...current];
+        });
+        setSelectedLeadRecord(freshLead);
+      } catch (error) {
+        console.error("Failed to fetch lead details from Supabase:", error);
+        if (requestId === leadDetailRequestRef.current) {
+          setSelectedLeadError(error instanceof Error ? error.message : "Could not load this lead from Supabase.");
+        }
+      } finally {
+        if (requestId === leadDetailRequestRef.current) setSelectedLeadLoading(false);
+      }
+    }
+
+    fetchLead();
+  }
+
+  function closeLeadDetails() {
+    leadDetailRequestRef.current += 1;
+    setSelectedLeadId(null);
+    setSelectedLeadRecord(null);
+    setSelectedLeadLoading(false);
+    setSelectedLeadError("");
   }
 
   function closeDialogs() {
     setShowForm(false);
-    setSelectedLeadId(null);
+    closeLeadDetails();
   }
 
   async function handleCreateLead(values, { addAnother = false } = {}) {
@@ -1476,13 +1564,46 @@ const filteredLeads = useMemo(() => {
         />
       )}
 
+      {selectedLeadId && !selectedLead && (
+        <ModalShell
+          labelledBy="lead-fetch-title"
+          onRequestClose={closeLeadDetails}
+          className="wide-modal"
+        >
+          <div className="modal-heading">
+            <h2 id="lead-fetch-title">{selectedLeadLoading ? "Loading lead details" : "Could not load lead"}</h2>
+            <button type="button" className="modal-close" onClick={closeLeadDetails} aria-label="Close">
+              ×
+            </button>
+          </div>
+          <div className="modal-body" role={selectedLeadError ? "alert" : "status"}>
+            {selectedLeadError || "Fetching the latest lead details from Supabase…"}
+          </div>
+          {selectedLeadError && (
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  const lead = leads.find((item) => item.id === selectedLeadId);
+                  if (lead) openLead(lead, selectedLeadTab);
+                  else closeLeadDetails();
+                }}
+              >
+                Try again
+              </button>
+            </div>
+          )}
+        </ModalShell>
+      )}
+
       {selectedLead && (
         <LeadDetailsModal
           key={selectedLead.id}
           lead={selectedLead}
           now={now}
           staffOptions={staffOptions}
-          onClose={() => setSelectedLeadId(null)}
+          onClose={closeLeadDetails}
           onSave={handleSaveLead}
           onLoadActivities={loadLeadActivities}
           onLogActivity={logLeadActivity}
