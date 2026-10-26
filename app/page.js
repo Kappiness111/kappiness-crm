@@ -31,6 +31,7 @@ function mapLeadRecord(record) {
     phone: record.phone || "",
     email: record.email || "",
     source: record.source || "Other",
+    contact_method: record.contact_method || "",
     assigned_staff: record.assigned_staff || "",
     status: record.status || "New",
     next_follow_up_at: record.next_follow_up_at || "",
@@ -77,7 +78,7 @@ function newId() {
 // Converts a value from the UI into what the leads table stores.
 function toDbValue(key, value) {
   if (key === "next_follow_up_at") return value ? parseDate(value)?.toISOString() || null : null;
-  if (["assigned_staff", "not_converted_reason", "notes"].includes(key)) return value ? value : null;
+  if (["assigned_staff", "not_converted_reason", "notes", "contact_method"].includes(key)) return value ? value : null;
   return value;
 }
 
@@ -654,6 +655,7 @@ const filteredLeads = useMemo(() => {
           phone: values.phone,
           email: values.email || null,
           source: values.source,
+          contact_method: values.contact_method,
           service_interest: values.service_interest,
           notes: values.notes || null,
           assigned_staff: values.assigned_staff || null,

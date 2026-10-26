@@ -4,14 +4,8 @@ export const STATUSES = ["New", "Contacted", "Follow Up", "Converted", "Lost"];
 export const CLOSED_STATUSES = ["Converted", "Lost"];
 
 export const SOURCES = [
-  "Website",
-  "Phone Call",
-  "Walk In",
-  "Doctor Referral",
-  "Instagram",
-  "Facebook",
-  "Google Ads",
-  "WhatsApp",
+  "Google Ad",
+  "Meta Ad",
   "Other",
 ];
 
@@ -26,7 +20,7 @@ export const SERVICES = [
 ];
 
 export const LANGUAGES = ["Malayalam", "English", "Hindi", "Tamil", "Other"];
-export const CONTACT_METHODS = ["Phone call", "WhatsApp", "Email"];
+export const CONTACT_METHODS = ["Call", "WhatsApp", "Other"];
 export const CONTACT_TIMES = ["Any time", "Morning", "Afternoon", "Evening"];
 export const PRIORITIES = ["Normal", "High", "Urgent"];
 export const NOTES_LIMIT = 500;
