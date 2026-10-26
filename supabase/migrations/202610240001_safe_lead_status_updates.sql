@@ -23,7 +23,8 @@ DECLARE
   assignments text := '';
   allowed_columns constant text[] := ARRAY[
     'status', 'next_follow_up_at', 'assigned_staff',
-    'not_converted_reason', 'service_interest', 'notes', 'updated_at'
+    'not_converted_reason', 'service_interest', 'notes', 'source',
+    'contact_method', 'updated_at'
   ];
 BEGIN
   IF p_lead_id IS NULL OR p_expected_status IS NULL OR jsonb_typeof(changes) <> 'object' THEN

@@ -6,6 +6,7 @@ import Icon from "./Icon";
 import ModalShell from "./ModalShell";
 import {
   NOTES_LIMIT,
+  CONTACT_METHODS,
   SERVICES,
   SOURCES,
   formatDate,
@@ -43,19 +44,33 @@ const initialValues = {
   full_name: "",
   phone: "",
   email: "",
-  source: "Website",
+  source: "",
+  contact_method: "",
   service_interest: "Individual counselling",
   notes: "",
   assigned_staff: "",
   next_follow_up_at: "",
 };
 
-const FIELD_ORDER = ["full_name", "phone", "email", "notes", "next_follow_up_at"];
+const FIELD_ORDER = [
+  "full_name",
+  "phone",
+  "email",
+  "source",
+  "contact_method",
+  "notes",
+  "next_follow_up_at",
+];
 
 function validate(values, leads) {
   const errors = {};
   const name = values.full_name.trim();
   const digits = phoneDigits(values.phone);
+
+  if (!SOURCES.includes(values.source)) errors.source = "Choose a lead source.";
+  if (values.source && !CONTACT_METHODS.includes(values.contact_method)) {
+    errors.contact_method = "Choose a contact method.";
+  }
 
   if (!name) errors.full_name = "Enter the lead's full name.";
   else if (name.length < 2) errors.full_name = "That name looks too short.";
@@ -106,6 +121,10 @@ export default function AddLeadModal({
 
   const setField = (field, value) => setValues((current) => ({ ...current, [field]: value }));
   const onChange = (field) => (event) => setField(field, event.target.value);
+  const onSourceChange = (event) => {
+    const source = event.target.value;
+    setValues((current) => ({ ...current, source, contact_method: "" }));
+  };
   const onBlur = (field) => () => setTouched((current) => ({ ...current, [field]: true }));
   const visibleError = (field) => (touched[field] || submitted ? errors[field] : undefined);
 
@@ -236,11 +255,47 @@ export default function AddLeadModal({
             </Box>
 
             <Box id="add-source" label="Lead source">
-              <select {...props("source")} value={values.source} onChange={onChange("source")}>
-                {SOURCES.map((source) => (
-                  <option key={source}>{source}</option>
-                ))}
-              </select>
+              <div className="dependent-selects">
+                <select
+                  {...props("source")}
+                  className={values.source ? "" : "is-placeholder"}
+                  value={values.source}
+                  onChange={onSourceChange}
+                  onBlur={onBlur("source")}
+                  required
+                >
+                  <option className="is-placeholder" value="" disabled>Select lead source</option>
+                  {SOURCES.map((source) => (
+                    <option key={source} value={source}>{source}</option>
+                  ))}
+                </select>
+                {visibleError("source") && (
+                  <p className="field-error" id="add-source-error" role="alert">
+                    {visibleError("source")}
+                  </p>
+                )}
+                {values.source && (
+                  <select
+                    {...props("contact_method")}
+                    aria-label="Contact method"
+                    className={values.contact_method ? "" : "is-placeholder"}
+                    value={values.contact_method}
+                    onChange={onChange("contact_method")}
+                    onBlur={onBlur("contact_method")}
+                    required
+                  >
+                    <option className="is-placeholder" value="" disabled>Select contact method</option>
+                    {CONTACT_METHODS.map((method) => (
+                      <option key={method} value={method}>{method}</option>
+                    ))}
+                  </select>
+                )}
+                {values.source && visibleError("contact_method") && (
+                  <p className="field-error" id="add-contact_method-error" role="alert">
+                    {visibleError("contact_method")}
+                  </p>
+                )}
+              </div>
             </Box>
 
             <Box id="add-service_interest" label="Service of interest">

@@ -7,8 +7,10 @@ import ModalShell from "./ModalShell";
 import StatusBadge from "./StatusBadge";
 import {
   CLOSED_STATUSES,
+  CONTACT_METHODS,
   NOTES_LIMIT,
   SERVICES,
+  SOURCES,
   STATUSES,
   dueLabel,
   formatDate,
@@ -86,6 +88,20 @@ function validateActivityDraft(draft) {
   return errors;
 }
 
+function isDuplicateActivity(existing, draft) {
+  const existingAt = parseDate(existing.at);
+  const draftAt = parseDate(draft.occurred_at);
+  if (!existingAt || !draftAt) return false;
+
+  return (
+    existing.type === draft.activity_type &&
+    (existing.staff || "").trim() === draft.staff_member.trim() &&
+    Math.floor(existingAt.getTime() / 60000) === Math.floor(draftAt.getTime() / 60000) &&
+    (existing.text || "").trim() === draft.notes.trim() &&
+    (existing.outcome || "") === draft.outcome
+  );
+}
+
 function newActivityId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
@@ -117,6 +133,8 @@ function mergeById(...lists) {
 function makeDraft(lead) {
   return {
     status: lead.status,
+    source: lead.source || "",
+    contact_method: lead.contact_method || "",
     next_follow_up_at: toInputValue(lead.next_follow_up_at),
     assigned_staff: lead.assigned_staff || "",
     service_interest: lead.service_interest || SERVICES[0],
@@ -127,6 +145,21 @@ function makeDraft(lead) {
 
 function validateDraft(draft, lead) {
   const errors = {};
+  const originalSource = lead.source || "";
+  const originalContactMethod = lead.contact_method || "";
+  const sourceUnchanged = draft.source === originalSource;
+
+  // Keep existing records editable when they contain values from an older
+  // dropdown set. A changed source must use a current option and get a method.
+  if (!SOURCES.includes(draft.source) && !(sourceUnchanged && originalSource)) {
+    errors.source = "Choose a valid lead source.";
+  }
+  if (
+    !CONTACT_METHODS.includes(draft.contact_method) &&
+    !(sourceUnchanged && draft.contact_method === originalContactMethod)
+  ) {
+    errors.contact_method = "Choose a contact method.";
+  }
   if (draft.status === "Lost" && !draft.not_converted_reason.trim()) {
     errors.not_converted_reason = "Add a short reason so the team knows why this lead was lost.";
   }
@@ -173,7 +206,7 @@ function describeChanges(lead, draft) {
     entries.push({ type: "update", text: staff ? `Assigned to ${staff}` : "Staff assignment removed" });
   }
 
-  const detailFields = ["service_interest", "notes"];
+  const detailFields = ["source", "contact_method", "service_interest", "notes"];
   if (detailFields.some((field) => base[field].trim() !== draft[field].trim())) {
     entries.push({ type: "update", text: "Lead details updated" });
   }
@@ -217,6 +250,7 @@ export default function LeadDetailsModal({
   const [activitySubmitted, setActivitySubmitted] = useState(false);
   const [activitySaving, setActivitySaving] = useState(false);
   const [activitySaveError, setActivitySaveError] = useState("");
+  const [activityDuplicateWarning, setActivityDuplicateWarning] = useState(false);
   const [loggedActivities, setLoggedActivities] = useState([]);
   const [loadState, setLoadState] = useState("idle"); // idle | loading | ready | error
   const [loadKey, setLoadKey] = useState(0);
@@ -281,8 +315,10 @@ export default function LeadDetailsModal({
   const activityErrors = validateActivityDraft(activityDraft);
   const activityError = (field) => (activitySubmitted ? activityErrors[field] : undefined);
   const activityProps = (field) => fieldProps(`activity-${field}`, activityError(field));
-  const setActivityField = (field) => (event) =>
+  const setActivityField = (field) => (event) => {
+    setActivityDuplicateWarning(false);
     setActivityDraft((current) => ({ ...current, [field]: event.target.value }));
+  };
   const activityStaffChoices = [
     ...new Set([...staffOptions, (lead.assigned_staff || "").trim()].filter(Boolean)),
   ].sort();
@@ -395,7 +431,9 @@ export default function LeadDetailsModal({
     if (editSavingRef.current) return; // block duplicate submissions
     setSubmitted(true);
 
-    const first = ["next_follow_up_at", "notes", "not_converted_reason"].find((field) => errors[field]);
+    const first = ["source", "contact_method", "next_follow_up_at", "notes", "not_converted_reason"].find(
+      (field) => errors[field]
+    );
     if (first) {
       document.getElementById(`edit-${first}`)?.focus();
       return;
@@ -420,6 +458,8 @@ export default function LeadDetailsModal({
       lead.id,
       {
         status: draft.status,
+        source: draft.source,
+        contact_method: draft.contact_method,
         assigned_staff: draft.assigned_staff.trim(),
         next_follow_up_at: draftClosed ? "" : draft.next_follow_up_at,
         not_converted_reason: draft.status === "Lost" ? draft.not_converted_reason.trim() : "",
@@ -440,8 +480,7 @@ export default function LeadDetailsModal({
     setTab("overview");
   }
 
-  async function handleLogActivity(event) {
-    event.preventDefault();
+  async function saveActivity(allowDuplicate = false) {
     if (savingRef.current) return; // block duplicate submissions
     setActivitySubmitted(true);
     setActivitySaveError("");
@@ -449,6 +488,15 @@ export default function LeadDetailsModal({
     const first = ["activity_type", "occurred_at", "notes", "outcome"].find((field) => activityErrors[field]);
     if (first) {
       document.getElementById(`activity-${first}`)?.focus();
+      return;
+    }
+
+    if (
+      !allowDuplicate &&
+      loadState === "ready" &&
+      loggedActivities.some((item) => isDuplicateActivity(item, activityDraft))
+    ) {
+      setActivityDuplicateWarning(true);
       return;
     }
 
@@ -481,6 +529,12 @@ export default function LeadDetailsModal({
     activityIdRef.current = null;
     setActivityDraft(makeActivityDraft(lead));
     setActivitySubmitted(false);
+    setActivityDuplicateWarning(false);
+  }
+
+  function handleLogActivity(event) {
+    event.preventDefault();
+    void saveActivity(false);
   }
 
   function handleDelete() {
@@ -567,6 +621,7 @@ export default function LeadDetailsModal({
                 <h4>Enquiry information</h4>
                 <div className="info-grid">
                   <InfoItem label="Source">{lead.source}</InfoItem>
+                  <InfoItem label="Contact method">{lead.contact_method || "Not provided"}</InfoItem>
                   <InfoItem label="Service">{lead.service_interest || "Not set"}</InfoItem>
                   <InfoItem label="Assigned staff">{lead.assigned_staff || "Unassigned"}</InfoItem>
                   <InfoItem label="Date added">{formatDate(lead.created_at)}</InfoItem>
@@ -812,6 +867,15 @@ export default function LeadDetailsModal({
               <p className="field-error" role="alert" style={{ margin: "10px 0 0" }}>
                 {activitySaveError}
               </p>
+            )}
+
+            {activityDuplicateWarning && (
+              <div className="subtle-text" role="alert" style={{ margin: "10px 0 0" }}>
+                This looks like an activity already saved for this lead. Check the history before adding it again.{" "}
+                <button type="button" className="text-button" onClick={() => void saveActivity(true)}>
+                  Log it anyway
+                </button>
+              </div>
             )}
 
             <div className="activity-form-actions">
