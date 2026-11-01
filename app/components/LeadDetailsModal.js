@@ -57,10 +57,10 @@ const LOGGED_ACTIVITY_ICONS = {
   "Lead update": "edit",
 };
 
-function makeActivityDraft(lead) {
+function makeActivityDraft(lead, staffName = "") {
   return {
     activity_type: "Phone call",
-    staff_member: (lead.assigned_staff || "").trim(),
+    staff_member: (staffName || lead.assigned_staff || "").trim(),
     occurred_at: toInputValue(new Date()),
     notes: "",
     outcome: "",
@@ -199,6 +199,7 @@ export default function LeadDetailsModal({
   lead,
   now,
   staffOptions = [],
+  currentStaffName = "",
   onClose,
   onSave,
   onLoadActivities,
@@ -213,7 +214,7 @@ export default function LeadDetailsModal({
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(() => makeDraft(lead));
   const [submitted, setSubmitted] = useState(false);
-  const [activityDraft, setActivityDraft] = useState(() => makeActivityDraft(lead));
+  const [activityDraft, setActivityDraft] = useState(() => makeActivityDraft(lead, currentStaffName));
   const [activitySubmitted, setActivitySubmitted] = useState(false);
   const [activitySaving, setActivitySaving] = useState(false);
   const [activitySaveError, setActivitySaveError] = useState("");
@@ -284,7 +285,7 @@ export default function LeadDetailsModal({
   const setActivityField = (field) => (event) =>
     setActivityDraft((current) => ({ ...current, [field]: event.target.value }));
   const activityStaffChoices = [
-    ...new Set([...staffOptions, (lead.assigned_staff || "").trim()].filter(Boolean)),
+    ...new Set([...staffOptions, (lead.assigned_staff || "").trim(), currentStaffName].filter(Boolean)),
   ].sort();
   const closed = CLOSED_STATUSES.includes(lead.status);
   const followUpState = getFollowUpState(lead, now);
@@ -470,7 +471,7 @@ export default function LeadDetailsModal({
     savedActivitiesRef.current.set(String(result.activity.id), result.activity);
     setLoggedActivities((current) => mergeById([result.activity], current));
     activityIdRef.current = null;
-    setActivityDraft(makeActivityDraft(lead));
+    setActivityDraft(makeActivityDraft(lead, currentStaffName));
     setActivitySubmitted(false);
   }
 

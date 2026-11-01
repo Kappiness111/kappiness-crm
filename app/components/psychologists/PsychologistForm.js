@@ -1,0 +1,111 @@
+"use client";
+
+import { useState } from "react";
+import { validatePsychologist } from "../../lib/psychologists";
+import Dialog from "./Dialog";
+import styles from "./psychologists.module.css";
+
+/* Add / edit psychologist profile.
+   The login account is NOT an input: auth_user_id must come from the backend account workflow. */
+export default function PsychologistForm({ mode, psychologist, onSubmit, onClose }) {
+  const editing = mode === "edit";
+  const [values, setValues] = useState({
+    name: editing ? psychologist.name : "",
+    phone: editing ? psychologist.phone : "",
+    active: editing ? psychologist.active : true,
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const errors = validatePsychologist(values);
+  const showError = (field) => (submitted ? errors[field] : undefined);
+  const setField = (field) => (event) => setValues((current) => ({ ...current, [field]: event.target.value }));
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (saving) return;
+    setSubmitted(true);
+    setFormError("");
+    if (Object.keys(errors).length > 0) return;
+
+    setSaving(true);
+    const result = await onSubmit({ name: values.name.trim(), phone: values.phone.trim(), active: values.active });
+    setSaving(false);
+
+    if (!result || !result.ok) setFormError((result && result.message) || "Could not save. Please try again.");
+  }
+
+  return (
+    <Dialog
+      titleId="psychologist-form-title"
+      title={editing ? "Edit psychologist profile" : "Add psychologist"}
+      subtitle={editing ? "Update the profile details." : "Create the psychologist's profile."}
+      onClose={onClose}
+      busy={saving}
+      footer={
+        <>
+          <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="psychologist-form" className="primary-button" disabled={saving}>
+            {saving ? "Saving..." : editing ? "Save changes" : "Add psychologist"}
+          </button>
+        </>
+      }
+    >
+      <form id="psychologist-form" className={styles.dialogBody} onSubmit={handleSubmit} noValidate>
+        {formError ? <div className={styles.formAlert} role="alert">{formError}</div> : null}
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="psy-name">Full name <span className={styles.required}>*</span></label>
+          <input
+            id="psy-name"
+            className={`${styles.input} ${showError("name") ? styles.inputError : ""}`}
+            value={values.name}
+            onChange={setField("name")}
+            placeholder="Dr. Anita Menon"
+            autoComplete="off"
+            aria-invalid={Boolean(showError("name"))}
+            autoFocus
+          />
+          {showError("name") ? <p className={styles.fieldError} role="alert">{errors.name}</p> : null}
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="psy-phone">Phone number <span className={styles.required}>*</span></label>
+          <input
+            id="psy-phone"
+            type="tel"
+            className={`${styles.input} ${showError("phone") ? styles.inputError : ""}`}
+            value={values.phone}
+            onChange={setField("phone")}
+            placeholder="+91 98765 43210"
+            autoComplete="off"
+            aria-invalid={Boolean(showError("phone"))}
+          />
+          {showError("phone") ? <p className={styles.fieldError} role="alert">{errors.phone}</p> : null}
+        </div>
+
+        <div className={styles.infoPanel}>
+          <strong>Login account</strong>
+          {editing
+            ? psychologist.hasLogin
+              ? "A login account is linked to this profile. Changing the link is managed by the authentication system, not this form."
+              : "No login account is linked to this profile yet."
+            : "A login account cannot be created or linked from this screen. Linking an existing Supabase account to a psychologist needs a backend workflow, which is not available yet. This profile will be created without a login."}
+        </div>
+
+        <label className={styles.switchRow}>
+          <input
+            type="checkbox"
+            checked={values.active}
+            onChange={(event) => setValues((current) => ({ ...current, active: event.target.checked }))}
+          />
+          <div>
+            <strong>Account active</strong>
+            <span>Inactive psychologists stay on record but are marked as unavailable for work.</span>
+          </div>
+        </label>
+      </form>
+    </Dialog>
+  );
+}

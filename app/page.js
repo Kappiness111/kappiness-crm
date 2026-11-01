@@ -1,12 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AddLeadModal from "./components/AddLeadModal";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
 import StatusBadge from "./components/StatusBadge";
 import { createClient } from "../utils/supabase/client";
+import { getStaffName } from "./lib/staff";
 import {
   CLOSED_STATUSES,
   STATUSES,
@@ -111,6 +113,7 @@ const navigation = [
   { name: "Follow Ups", icon: "clock" },
   { name: "Appointments", icon: "calendar" },
   { name: "Counsellors", icon: "heart" },
+  { name: "Psychologists", icon: "heart", href: "/psychologists" },
   { name: "Reports", icon: "chart" },
 ];
 
@@ -227,6 +230,7 @@ function SectionHeading({ eyebrow, title, action, onAction }) {
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [activePage, setActivePage] = useState("Dashboard");
   const [leads, setLeads] = useState([]);
   const [leadsLoading, setLeadsLoading] = useState(true);
@@ -250,6 +254,39 @@ export default function DashboardPage() {
   const busyLeadIdsRef = useRef(new Set());
   // The clock is set after mount so server and browser markup always match.
   const [now, setNow] = useState(null);
+  // Logged-in staff member, and the staff names saved on lead_activities rows.
+  const [currentStaff, setCurrentStaff] = useState({ name: "", email: "" });
+  const [activityLog, setActivityLog] = useState([]);
+  const [onlyMine, setOnlyMine] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStaffAndActivity() {
+      try {
+        const supabase = createClient();
+        const { data: userData } = await supabase.auth.getUser();
+        if (!cancelled && userData && userData.user) {
+          setCurrentStaff({ name: getStaffName(userData.user), email: userData.user.email || "" });
+        }
+
+        const { data, error } = await supabase
+          .from("lead_activities")
+          .select("lead_id, staff_member, occurred_at")
+          .not("staff_member", "is", null)
+          .order("occurred_at", { ascending: false })
+          .limit(3000);
+        if (!error && Array.isArray(data) && !cancelled) setActivityLog(data);
+      } catch (error) {
+        console.error("Failed to load staff or activity info:", error);
+      }
+    }
+
+    loadStaffAndActivity();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -331,6 +368,30 @@ export default function DashboardPage() {
     [leads]
   );
 
+  const myName = currentStaff.name.trim().toLowerCase();
+
+  // lead id -> name of the staff member who last logged something on it
+  const lastUpdatedBy = useMemo(() => {
+    const map = {};
+    activityLog.forEach((row) => {
+      if (row.staff_member && !map[row.lead_id]) map[row.lead_id] = row.staff_member;
+    });
+    return map;
+  }, [activityLog]);
+
+  // Leads that are assigned to me or that I have updated
+  const myLeadIds = useMemo(() => {
+    const ids = new Set();
+    if (!myName) return ids;
+    activityLog.forEach((row) => {
+      if ((row.staff_member || "").trim().toLowerCase() === myName) ids.add(row.lead_id);
+    });
+    leads.forEach((lead) => {
+      if ((lead.assigned_staff || "").trim().toLowerCase() === myName) ids.add(lead.id);
+    });
+    return ids;
+  }, [activityLog, leads, myName]);
+
   const followUps = useMemo(() => {
     const groups = { overdue: [], today: [], upcoming: [], unscheduled: [] };
 
@@ -406,13 +467,15 @@ const filteredLeads = useMemo(() => {
       const matchesStatus =
         statusFilter === "All" || lead.status === statusFilter;
 
-      return matchesSearch && matchesStatus;
+      const matchesMine = !onlyMine || myLeadIds.has(lead.id);
+
+      return matchesSearch && matchesStatus && matchesMine;
     })
     .sort(
       (a, b) =>
         new Date(b.created_at) - new Date(a.created_at)
     );
-}, [leads, search, statusFilter]);
+}, [leads, search, statusFilter, onlyMine, myLeadIds]);
 
   /* ----- actions ----- */
 
@@ -424,7 +487,14 @@ const filteredLeads = useMemo(() => {
   }
 
   function openPage(page) {
+    const target = navigation.find((item) => item.name === page);
+    if (target && target.href) {
+      setMobileMenuOpen(false);
+      router.push(target.href);
+      return;
+    }
     if (page === "Leads") {
+      setOnlyMine(false);
       setStatusFilter("All");
       setSearch("");
     }
@@ -432,6 +502,7 @@ const filteredLeads = useMemo(() => {
   }
 
   function goToLeads(status) {
+    setOnlyMine(false);
     setStatusFilter(status);
     setSearch("");
     navigateTo("Leads");
@@ -457,7 +528,7 @@ const filteredLeads = useMemo(() => {
           id: newId(),
           lead_id: leadId,
           activity_type: SYSTEM_EVENT_TYPES[entry.type] || SYSTEM_EVENT_TYPES.update,
-          staff_member: null,
+          staff_member: currentStaff.name || null,
           occurred_at: stamp,
           notes: entry.text || null,
           outcome: null,
@@ -467,6 +538,13 @@ const filteredLeads = useMemo(() => {
 
       const { error } = await supabase.from("lead_activities").insert(rows);
       if (error) throw error;
+
+      if (currentStaff.name) {
+        setActivityLog((current) => [
+          ...rows.map((row) => ({ lead_id: row.lead_id, staff_member: row.staff_member, occurred_at: row.occurred_at })),
+          ...current,
+        ]);
+      }
 
       // Tells an open lead drawer to reload its history.
       setActivityRevisions((current) => ({ ...current, [leadId]: (current[leadId] || 0) + 1 }));
@@ -733,6 +811,11 @@ const filteredLeads = useMemo(() => {
       if (error) throw error;
       if (!data) throw new Error("Supabase returned no saved activity.");
 
+      setActivityLog((current) => [
+        { lead_id: data.lead_id, staff_member: data.staff_member, occurred_at: data.occurred_at },
+        ...current,
+      ]);
+
       flash(`${values.activity_type} logged for ${lead.full_name}`);
       return { ok: true, activity: mapActivityRecord(data) };
     } catch (error) {
@@ -784,6 +867,7 @@ const filteredLeads = useMemo(() => {
                 <th>SOURCE</th>
                 <th>ASSIGNED STAFF</th>
                 <th>STATUS</th>
+                <th>UPDATED BY</th>
                 <th>NEXT FOLLOW UP</th>
                 <th>DATE ADDED</th>
                 <th aria-label="Actions" />
@@ -793,13 +877,13 @@ const filteredLeads = useMemo(() => {
             <tbody>
               {leadsLoading && (
                 <tr>
-                  <td colSpan={8} role="status">Loading leads from Supabase...</td>
+                  <td colSpan={9} role="status">Loading leads from Supabase...</td>
                 </tr>
               )}
 
               {!leadsLoading && leadsError && (
                 <tr>
-                  <td colSpan={8} role="alert">{leadsError}</td>
+                  <td colSpan={9} role="alert">{leadsError}</td>
                 </tr>
               )}
 
@@ -820,6 +904,13 @@ const filteredLeads = useMemo(() => {
                   <td>
                     <StatusBadge status={lead.status} />
                   </td>
+                  <td>
+                    {lastUpdatedBy[lead.id]
+                      ? lastUpdatedBy[lead.id].trim().toLowerCase() === myName
+                        ? "You"
+                        : lastUpdatedBy[lead.id]
+                      : "—"}
+                  </td>
                   <td>{renderFollowUpCell(lead)}</td>
                   <td>{formatDate(lead.created_at)}</td>
                   <td>
@@ -839,7 +930,7 @@ const filteredLeads = useMemo(() => {
 
               {!leadsLoading && !leadsError && rows.length === 0 && (
                 <tr className="empty-row">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="empty-state">
                       <span className="empty-state-icon">
                         <Icon name="search" />
@@ -1007,10 +1098,10 @@ const filteredLeads = useMemo(() => {
           </div>
 
           <div className="profile">
-            <div className="profile-avatar">A</div>
+            <div className="profile-avatar">{(currentStaff.name || "A").charAt(0).toUpperCase()}</div>
             <div className="profile-copy">
-              <strong>CRM Admin</strong>
-              <span>Administrator</span>
+              <strong>{currentStaff.name || "CRM Admin"}</strong>
+              <span>Staff</span>
             </div>
             <span className="profile-chevron">
               <Icon name="chevronDown" />
@@ -1060,7 +1151,7 @@ const filteredLeads = useMemo(() => {
               <div className="hero-content">
                 <span className="eyebrow">YOUR WORKSPACE AT A GLANCE</span>
                 <h1>
-                  {getGreeting(now)}, <span>Team Kappiness</span>
+                  {getGreeting(now)}, <span>{currentStaff.name || "Team Kappiness"}</span>
                 </h1>
                 <p>
                   {attentionCount > 0
@@ -1375,6 +1466,13 @@ const filteredLeads = useMemo(() => {
                     <span>{status === "All" ? totalLeads : statusCounts[status]}</span>
                   </button>
                 ))}
+                <button
+                  className={`table-tab ${onlyMine ? "active" : ""}`}
+                  onClick={() => setOnlyMine((value) => !value)}
+                >
+                  My leads
+                  <span>{myLeadIds.size}</span>
+                </button>
               </div>
 
               <label className="search-box page-search">
@@ -1482,6 +1580,7 @@ const filteredLeads = useMemo(() => {
           lead={selectedLead}
           now={now}
           staffOptions={staffOptions}
+          currentStaffName={currentStaff.name}
           onClose={() => setSelectedLeadId(null)}
           onSave={handleSaveLead}
           onLoadActivities={loadLeadActivities}
