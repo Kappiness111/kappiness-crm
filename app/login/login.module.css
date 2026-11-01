@@ -385,3 +385,66 @@
     animation-duration: 1.6s;
   }
 }
+
+/* Google sign-in (Supabase OAuth). Additive only: nothing above is changed. */
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 0;
+  color: #7b6e65;
+  font-size: 13px;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #d9cfc6;
+}
+
+.googleButton {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1.5px solid #d9cfc6;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+
+.googleButton:hover:not(:disabled) {
+  background: var(--cream);
+  border-color: var(--caramel);
+}
+
+.googleButton:focus-visible {
+  outline: 3px solid var(--caramel);
+  outline-offset: 3px;
+}
+
+.googleButton:disabled {
+  opacity: 0.8;
+  cursor: progress;
+}
+
+/* Dark spinner for the white Google button (the base .spinner is light). */
+.spinnerDark {
+  border-color: rgba(74, 48, 39, 0.25);
+  border-top-color: var(--coffee);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .googleButton {
+    transition: none;
+  }
+}

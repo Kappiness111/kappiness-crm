@@ -39,8 +39,10 @@ export async function proxy(request) {
 
   const isLoggedIn = !error && !!claims
   const isLoginPage = request.nextUrl.pathname === '/login'
+  const isAuthCallback =
+  request.nextUrl.pathname === '/auth/callback'
 
-  if (!isLoggedIn && !isLoginPage) {
+  if (!isLoggedIn && !isLoginPage && !isAuthCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = ''

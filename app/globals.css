@@ -3172,6 +3172,7 @@ body {
 
 .fbox:focus-within { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
 .fbox:has([aria-invalid="true"]) { border-color: #c0584a; box-shadow: none; }
+.fbox:has([aria-invalid="true"]):focus-within { box-shadow: 0 0 0 2px var(--amber-light); }
 
 .lead-modal.add-lead .fbox > label {
   display: block;
@@ -3199,7 +3200,13 @@ body {
 
 .lead-modal.add-lead .fbox textarea { min-height: 84px; resize: vertical; font-weight: 400; line-height: 1.5; }
 .lead-modal.add-lead .fbox select { cursor: pointer; }
+.lead-modal.add-lead .fbox select.is-placeholder { color: #b4a89b; font-weight: 400; }
+.dependent-selects select option { color: var(--text); }
+.dependent-selects select option.is-placeholder { color: #b4a89b; }
 .lead-modal.add-lead .fbox input::placeholder { color: #b4a89b; font-weight: 400; }
+.dependent-selects { display: flex; flex-direction: column; min-width: 0; }
+.dependent-selects select[aria-label="Contact method"] { border-top: 1px solid #eee7de; }
+.dependent-selects .field-error { margin: 3px 2px 0; }
 
 .fwrap .field-hint,
 .fwrap .field-error { margin: 5px 2px 0; }
