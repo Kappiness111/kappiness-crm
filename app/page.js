@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import "./globals.css";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import AddLeadModal from "./components/AddLeadModal";
@@ -9,10 +10,26 @@ import LeadDetailsModal from "./components/LeadDetailsModal";
 import ModalShell from "./components/ModalShell";
 import StatusBadge from "./components/StatusBadge";
 import { createClient } from "../utils/supabase/client";
-import { getStaffName } from "./lib/staff";
+import { canUpdateStatuses, getStaffName, getStaffRole } from "./lib/staff";
+import {
+  APPOINTMENT_STATUSES,
+  PSYCHOLOGIST_CAN_SCHEDULE,
+  createAppointment,
+  describeAppointmentError,
+  rescheduleAppointment,
+  updateAppointmentStatus,
+} from "./lib/appointmentsApi";
+import { dayHasFreeSlot, periodsFor, slotsForDay } from "./lib/appointmentSlots";
+import { formatClock as formatSlotTime, isSameDay, startOfDay } from "./lib/calendar";
+import { getPsychologistByAuthUser, listAllAvailability, listPsychologists } from "./lib/psychologistsApi";
+import BookingModal from "./components/BookingModal";
+import MonthGrid from "./components/MonthGrid";
+import AppointmentTable, { Avatar } from "./components/AppointmentTable";
 import {
   CLOSED_STATUSES,
+  DEFAULT_STATUS,
   STATUSES,
+  UNCONFIRMED_STATUSES,
   dueLabel,
   formatDate,
   formatDateTime,
@@ -35,7 +52,7 @@ function mapLeadRecord(record) {
     source: record.source || "Other",
     contact_method: record.contact_method || "",
     assigned_staff: record.assigned_staff || "",
-    status: record.status || "New",
+    status: record.status || DEFAULT_STATUS,
     next_follow_up_at: record.next_follow_up_at || "",
     service_interest: record.service_interest || "",
     not_converted_reason: record.not_converted_reason || "",
@@ -114,7 +131,7 @@ const navigation = [
   { name: "Leads", icon: "users" },
   { name: "Follow Ups", icon: "clock" },
   { name: "Appointments", icon: "calendar" },
-  { name: "Counsellors", icon: "heart" },
+  { name: "Confirmed", icon: "check" },
   { name: "Psychologists", icon: "heart", href: "/psychologists" },
   { name: "Reports", icon: "chart" },
 ];
@@ -261,7 +278,19 @@ export default function DashboardPage() {
   // The clock is set after mount so server and browser markup always match.
   const [now, setNow] = useState(null);
   // Logged-in staff member, and the staff names saved on lead_activities rows.
-  const [currentStaff, setCurrentStaff] = useState({ name: "", email: "" });
+  const [currentStaff, setCurrentStaff] = useState({ id: "", name: "", email: "", role: "" });
+  const [psychologists, setPsychologists] = useState([]);
+  const [availability, setAvailability] = useState([]);
+  const [ownPsychologist, setOwnPsychologist] = useState(null);
+  const [bookingDialog, setBookingDialog] = useState(null); // { mode, lead?, appointment? }
+  const [calAnchor, setCalAnchor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [calDay, setCalDay] = useState(null);
+  const [calPsychologist, setCalPsychologist] = useState("all");
+  const [notifications, setNotifications] = useState([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [appointments, setAppointments] = useState([]);
+  const appointmentsState = "ready"; // UI only: appointments are kept in memory for now
+  const canEditStatuses = canUpdateStatuses(currentStaff.role);
   const [activityLog, setActivityLog] = useState([]);
   const [onlyMine, setOnlyMine] = useState(false);
 
@@ -273,7 +302,12 @@ export default function DashboardPage() {
         const supabase = createClient();
         const { data: userData } = await supabase.auth.getUser();
         if (!cancelled && userData && userData.user) {
-          setCurrentStaff({ name: getStaffName(userData.user), email: userData.user.email || "" });
+          setCurrentStaff({
+            id: userData.user.id,
+            name: getStaffName(userData.user),
+            email: userData.user.email || "",
+            role: getStaffRole(userData.user),
+          });
         }
 
         const { data, error } = await supabase
@@ -293,6 +327,39 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadScheduling() {
+      try {
+        const [list, periods] = await Promise.all([listPsychologists(), listAllAvailability()]);
+        if (cancelled) return;
+        setPsychologists(list);
+        setAvailability(periods);
+      } catch (error) {
+        console.error("Failed to load psychologists or availability:", error);
+      }
+    }
+
+    loadScheduling();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (currentStaff.role !== "psychologist" || !currentStaff.id) return undefined;
+    let cancelled = false;
+    getPsychologistByAuthUser(currentStaff.id)
+      .then((profile) => {
+        if (!cancelled) setOwnPsychologist(profile);
+      })
+      .catch((error) => console.error("Failed to load own psychologist profile:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStaff.role, currentStaff.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -355,23 +422,25 @@ export default function DashboardPage() {
     return counts;
   }, [leads]);
 
-  const newCount = statusCounts.New;
-  const contactedCount = statusCounts.Contacted;
-  const followUpCount = statusCounts["Follow Up"];
-  const convertedCount = statusCounts.Converted;
-  const lostCount = statusCounts.Lost;
-  const activeCount = totalLeads - convertedCount - lostCount;
-  const engagedPercent = totalLeads
-    ? Math.round(((contactedCount + followUpCount + convertedCount) / totalLeads) * 100)
-    : 0;
+  const enquiryCount = statusCounts.Enquiry;
+  const yetToConfirmCount = statusCounts["Yet to Confirm"];
+  const willInformCount = statusCounts["Will Inform"];
+  const confirmedCount = statusCounts.Confirmed;
+  const activeCount = totalLeads - confirmedCount;
+  // Share of leads that have moved past the first enquiry.
+  const engagedPercent = totalLeads ? Math.round(((totalLeads - enquiryCount) / totalLeads) * 100) : 0;
   const staffCount = new Set(
     leads.map((lead) => (lead.assigned_staff || "").trim()).filter(Boolean)
   ).size;
 
   const staffOptions = useMemo(
     () =>
-      [...new Set(leads.map((lead) => (lead.assigned_staff || "").trim()).filter(Boolean))].sort(),
-    [leads]
+      [
+        ...new Set(
+          [...leads.map((lead) => (lead.assigned_staff || "").trim()), currentStaff.name.trim()].filter(Boolean)
+        ),
+      ].sort(),
+    [leads, currentStaff.name]
   );
 
   const myName = currentStaff.name.trim().toLowerCase();
@@ -414,6 +483,69 @@ export default function DashboardPage() {
     groups.upcoming.sort(byDate);
     return groups;
   }, [leads, now]);
+
+  const leadsById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
+  const appointmentsByLead = useMemo(() => {
+    const map = {};
+    appointments.forEach((item) => {
+      (map[item.lead_id] = map[item.lead_id] || []).push(item);
+    });
+    return map;
+  }, [appointments]);
+  // Confirmed appointments (booked rows) and unconfirmed leads (no booking possible yet) are kept apart.
+  const upcomingAppointments = appointments.filter((item) => item.status === "Scheduled");
+  const pastAppointments = appointments.filter((item) => item.status !== "Scheduled");
+  const unconfirmedLeads = leads.filter((lead) => UNCONFIRMED_STATUSES.includes(lead.status));
+  const confirmedWithoutBooking = leads.filter(
+    (lead) => lead.status === "Confirmed" && !(appointmentsByLead[lead.id] || []).some((item) => item.status === "Scheduled")
+  );
+
+  const psychologistNames = useMemo(() => {
+    const map = {};
+    psychologists.forEach((item) => {
+      map[item.id] = item.name;
+    });
+    return map;
+  }, [psychologists]);
+
+  // Staff can schedule for any active psychologist. A psychologist can only schedule for themselves,
+  // and only while PSYCHOLOGIST_CAN_SCHEDULE (the agreed permission) is on.
+  const isPsychologistUser = currentStaff.role === "psychologist";
+  const schedulablePsychologists = useMemo(() => {
+    if (!isPsychologistUser) return psychologists.filter((item) => item.active);
+    return PSYCHOLOGIST_CAN_SCHEDULE && ownPsychologist ? [ownPsychologist] : [];
+  }, [isPsychologistUser, psychologists, ownPsychologist]);
+  const canScheduleAppointments = schedulablePsychologists.length > 0;
+
+  function canManageAppointment(item) {
+    if (!isPsychologistUser) return true;
+    return PSYCHOLOGIST_CAN_SCHEDULE && ownPsychologist && String(item.psychologist_id) === String(ownPsychologist.id);
+  }
+
+  // Reminders: booked appointments starting in the next 24 hours.
+  const reminders = useMemo(() => {
+    if (!now) return [];
+    const limit = now.getTime() + 24 * 3600000;
+    return appointments
+      .filter((item) => item.status === "Scheduled")
+      .filter((item) => {
+        const start = new Date(item.starts_at).getTime();
+        return start >= now.getTime() - 15 * 60000 && start <= limit;
+      })
+      .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+  }, [appointments, now]);
+
+  const todayAppointments = now
+    ? appointments.filter((item) => item.status === "Scheduled" && isSameDay(new Date(item.starts_at), now))
+    : [];
+  const weekAppointments = now
+    ? appointments.filter((item) => {
+        const start = new Date(item.starts_at).getTime();
+        return item.status === "Scheduled" && start >= now.getTime() && start <= now.getTime() + 7 * 86400000;
+      })
+    : [];
+
+  const unreadCount = notifications.filter((item) => !item.read).length;
 
   const attentionCount = followUps.overdue.length + followUps.today.length;
   const openFollowUpCount = attentionCount + followUps.upcoming.length;
@@ -518,6 +650,13 @@ const filteredLeads = useMemo(() => {
   function flash(message, tone = "success") {
     setNoticeTone(tone);
     setNotice(message);
+  }
+
+  // In-app notification for staff (kept in memory until a backend channel exists).
+  function pushNotification(text) {
+    setNotifications((current) =>
+      [{ id: newId(), text, at: new Date().toISOString(), read: false }, ...current].slice(0, 30)
+    );
   }
 
   // Writes history events ({ type, text }) to lead_activities in one insert. Resolves to true only if Supabase confirmed it.
@@ -740,7 +879,7 @@ const filteredLeads = useMemo(() => {
           next_follow_up_at: values.next_follow_up_at
             ? parseDate(values.next_follow_up_at)?.toISOString() || null
             : null,
-          status: "New",
+          status: DEFAULT_STATUS,
         })
         .select("*")
         .single();
@@ -784,16 +923,19 @@ const filteredLeads = useMemo(() => {
     const lead = leads.find((item) => item.id === id);
     if (!lead) return { ok: false, message: "This lead is no longer in the list. Please refresh the page." };
 
+    if (changes.status && changes.status !== lead.status && !canEditStatuses) {
+      return { ok: false, message: "You do not have permission to change lead statuses." };
+    }
+
     const result = await persistLeadUpdate(lead, changes, entries);
     if (!result.ok) return result;
 
     const outcome =
-      changes.status === "Converted" && lead.status !== "Converted"
-        ? "converted"
-        : changes.status === "Lost" && lead.status !== "Lost"
-          ? "marked as lost"
-          : "updated";
+      changes.status && changes.status !== lead.status ? `moved to ${changes.status}` : "updated";
 
+    if (changes.status && changes.status !== lead.status) {
+      pushNotification(`${lead.full_name}: status changed from ${lead.status} to ${changes.status}`);
+    }
     if (result.eventsSaved) flash(`${lead.full_name} ${outcome}`);
     else flash(`${lead.full_name} was ${outcome}, but the history entry could not be recorded.`, "error");
     return result;
@@ -807,18 +949,14 @@ const filteredLeads = useMemo(() => {
   }
 
   async function completeFollowUp(lead) {
-    const nextStatus = ["New", "Follow Up"].includes(lead.status) ? "Contacted" : lead.status;
     const entries = [{ type: "followup", text: "Follow up marked as done" }];
 
-    if (nextStatus !== lead.status) {
-      entries.push({ type: "status", text: `Status changed from ${lead.status} to ${nextStatus}` });
-    }
-
-    const result = await persistLeadUpdate(lead, { status: nextStatus, next_follow_up_at: "" }, entries);
+    const result = await persistLeadUpdate(lead, { next_follow_up_at: "" }, entries);
     if (!result.ok) {
       flash(result.message, "error");
       return;
     }
+    pushNotification(`Follow up with ${lead.full_name} marked as done`);
     if (result.eventsSaved) flash(`Follow up with ${lead.full_name} marked as done`);
     else flash(`Follow up with ${lead.full_name} saved, but the history entry could not be recorded.`, "error");
   }
@@ -849,6 +987,7 @@ const filteredLeads = useMemo(() => {
       flash(result.message, "error");
       return;
     }
+    pushNotification(`Follow up with ${lead.full_name} moved to tomorrow`);
     if (result.eventsSaved) flash(`${lead.full_name} moved to tomorrow`);
     else flash(`${lead.full_name} moved, but the history entry could not be recorded.`, "error");
   }
@@ -921,6 +1060,211 @@ const filteredLeads = useMemo(() => {
       }
       return { ok: false, message };
     }
+  }
+
+  /* ----- appointments (Supabase) ----- */
+
+  function openBooking(lead = null) {
+    closeLeadDetails();
+    setBookingDialog({ mode: "book", lead });
+  }
+
+  function openReschedule(appointment) {
+    closeLeadDetails();
+    setBookingDialog({ mode: "reschedule", appointment });
+  }
+
+  // True when another booked appointment already uses this psychologist at that time.
+  function hasConflict(values, ignoreId) {
+    const start = new Date(values.starts_at).getTime();
+    const end = new Date(values.ends_at).getTime();
+    return appointments.some(
+      (item) =>
+        item.status === "Scheduled" &&
+        String(item.id) !== String(ignoreId) &&
+        String(item.psychologist_id) === String(values.psychologist_id) &&
+        start < new Date(item.ends_at || new Date(item.starts_at).getTime() + 3600000).getTime() &&
+        end > new Date(item.starts_at).getTime()
+    );
+  }
+
+  // Called by the booking dialog. Resolves to { ok, message }.
+  async function submitBooking(values) {
+    const dialog = bookingDialog;
+    if (!dialog) return { ok: false, message: "Nothing to save." };
+    const reschedule = dialog.mode === "reschedule";
+    const lead = leadsById.get(values.lead_id);
+    if (!lead) return { ok: false, message: "This lead is no longer in the list. Please refresh the page." };
+
+    if (!schedulablePsychologists.some((item) => String(item.id) === String(values.psychologist_id))) {
+      return { ok: false, message: "You do not have permission to schedule for this psychologist." };
+    }
+    if (reschedule && !canManageAppointment(dialog.appointment)) {
+      return { ok: false, message: "You do not have permission to reschedule this appointment." };
+    }
+    if (!reschedule && lead.status !== "Confirmed") {
+      return { ok: false, message: "Only leads with status Confirmed can be booked." };
+    }
+    if (hasConflict(values, reschedule ? dialog.appointment.id : null)) {
+      return { ok: false, message: "That slot was just taken. Please pick another one." };
+    }
+
+    try {
+      const doctor = psychologistNames[values.psychologist_id] || "the psychologist";
+      if (reschedule) {
+        const saved = await rescheduleAppointment(dialog.appointment, values);
+        setAppointments((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+        pushNotification(`${lead.full_name}: appointment moved to ${formatDateTime(saved.starts_at)} with ${doctor}`);
+        flash(`Appointment rescheduled for ${lead.full_name}`);
+      } else {
+        const saved = await createAppointment({ id: newId(), ...values, booked_by: currentStaff.name });
+        setAppointments((current) => [...current, saved]);
+        pushNotification(`${lead.full_name}: appointment booked for ${formatDateTime(saved.starts_at)} with ${doctor}`);
+        flash(`Appointment booked for ${lead.full_name}`);
+      }
+      // Keep the calendar on the month of the new booking.
+      const when = new Date(values.starts_at);
+      setCalAnchor(new Date(when.getFullYear(), when.getMonth(), 1));
+      setCalDay(startOfDay(when));
+      return { ok: true };
+    } catch (error) {
+      console.error("Failed to save appointment:", error);
+      return { ok: false, message: describeAppointmentError(error) };
+    }
+  }
+
+  async function changeAppointmentStatus(appointment, status) {
+    if (!canManageAppointment(appointment)) return { ok: false, message: "You do not have permission to update this appointment." };
+    if (!APPOINTMENT_STATUSES.includes(status)) return { ok: false, message: "Choose a valid appointment status." };
+    try {
+      const saved = await updateAppointmentStatus(appointment, status);
+      setAppointments((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+      const lead = leadsById.get(appointment.lead_id);
+      pushNotification(`${lead ? lead.full_name : "Lead"}: appointment on ${formatDateTime(saved.starts_at)} marked ${status}`);
+      flash(`Appointment marked ${status}`);
+      return { ok: true };
+    } catch (error) {
+      console.error("Failed to update appointment status:", error);
+      return { ok: false, message: describeAppointmentError(error) };
+    }
+  }
+
+  function reminderLabel(item) {
+    const minutes = Math.round((new Date(item.starts_at) - now) / 60000);
+    if (minutes <= 0) return "Starting now";
+    if (minutes < 60) return `In ${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    return isSameDay(new Date(item.starts_at), now) ? `Today, in ${hours} hr` : `Tomorrow, in ${hours} hr`;
+  }
+
+  async function handleAppointmentStatus(item, status) {
+    const result = await changeAppointmentStatus(item, status);
+    if (!result.ok) flash(result.message, "error");
+  }
+
+  function renderAppointmentTable(items, empty) {
+    return (
+      <AppointmentTable
+        items={items}
+        empty={empty}
+        leadsById={leadsById}
+        psychologistNames={psychologistNames}
+        canManage={canManageAppointment}
+        onReschedule={openReschedule}
+        onOpen={openLead}
+        onStatusChange={handleAppointmentStatus}
+      />
+    );
+  }
+
+  // Leads without a booking (unconfirmed, or confirmed but not booked yet).
+  function renderLeadTable(items, empty, action) {
+    if (items.length === 0) return <p className="appt-empty">{empty}</p>;
+    return (
+      <div className="appt-table lead-cols" role="table">
+        <div className="appt-row appt-head" role="row">
+          <span role="columnheader">Client</span>
+          <span role="columnheader">Source</span>
+          <span role="columnheader">Assigned staff</span>
+          <span role="columnheader">Status</span>
+          <span role="columnheader" className="right">
+            Actions
+          </span>
+        </div>
+        {items.map((lead) => (
+          <div className="appt-row" role="row" key={lead.id}>
+            <span role="cell" className="appt-client">
+              <Avatar name={lead.full_name} />
+              <span>
+                <strong>{lead.full_name}</strong>
+                <small>{lead.lead_code}</small>
+              </span>
+            </span>
+            <span role="cell" className="appt-doctor">{lead.source}</span>
+            <span role="cell" className="appt-doctor">{lead.assigned_staff || "Unassigned"}</span>
+            <span role="cell">
+              <StatusBadge status={lead.status} />
+            </span>
+            <span role="cell" className="appt-actions">
+              {action && action(lead)}
+              <button type="button" className="appt-btn" onClick={() => openLead(lead)}>
+                Open
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderReminders() {
+    if (reminders.length === 0) return null;
+    return (
+      <div className="reminder-strip" aria-label="Upcoming reminders">
+        {reminders.map((item) => {
+          const lead = leadsById.get(item.lead_id);
+          const name = lead ? lead.full_name : "Unknown lead";
+          return (
+            <article className="reminder-card" key={`reminder-${item.id}`}>
+              <span className="reminder-when">{reminderLabel(item)}</span>
+              <div className="reminder-body">
+                <Avatar name={name} />
+                <div>
+                  <strong>{name}</strong>
+                  <small>
+                    {formatTime(item.starts_at)} · {psychologistNames[item.psychologist_id] || "Psychologist not set"}
+                  </small>
+                </div>
+              </div>
+              {canManageAppointment(item) && (
+                <button type="button" className="appt-btn" onClick={() => openReschedule(item)}>
+                  Reschedule
+                </button>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Month calendar on the Appointments page: availability dots and booking counts.
+  function calendarMeta(day) {
+    const ids =
+      calPsychologist === "all" ? schedulablePsychologists.map((item) => item.id) : [calPsychologist];
+    const count = appointments.filter(
+      (item) =>
+        item.status === "Scheduled" &&
+        isSameDay(new Date(item.starts_at), day) &&
+        (calPsychologist === "all" || String(item.psychologist_id) === String(calPsychologist))
+    ).length;
+    const future = day.getTime() >= startOfDay(now || new Date()).getTime();
+    const available =
+      future &&
+      ids.some((id) =>
+        dayHasFreeSlot(periodsFor(availability, id), day, appointments, { psychologistId: id, now: now || new Date() })
+      );
+    return { available, count };
   }
 
   /* ----- shared renderers ----- */
@@ -1220,18 +1564,75 @@ const filteredLeads = useMemo(() => {
             <button className="top-icon" aria-label="Appointments" onClick={() => navigateTo("Appointments")}>
               <Icon name="calendar" />
             </button>
-            <button
-              className="top-icon notification-button"
-              aria-label={
-                attentionCount > 0
-                  ? `${attentionCount} follow ups need attention`
-                  : "No follow ups need attention"
-              }
-              onClick={() => navigateTo("Follow Ups")}
-            >
-              <Icon name="bell" />
-              {attentionCount > 0 && <span className="notification-dot" />}
-            </button>
+            <div className="notif-wrap">
+              <button
+                className="top-icon notification-button"
+                aria-label={`Notifications${unreadCount + reminders.length + attentionCount > 0 ? `, ${unreadCount + reminders.length + attentionCount} need attention` : ""}`}
+                aria-expanded={notifOpen}
+                onClick={() => setNotifOpen((open) => !open)}
+              >
+                <Icon name="bell" />
+                {unreadCount + reminders.length + attentionCount > 0 && <span className="notification-dot" />}
+              </button>
+
+              {notifOpen && (
+                <div className="notif-panel" role="dialog" aria-label="Notifications">
+                  <div className="notif-head">
+                    <strong>Notifications</strong>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setNotifications((current) => current.map((item) => ({ ...item, read: true })))}
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+
+                  {attentionCount > 0 && (
+                    <button
+                      type="button"
+                      className="notif-item"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        navigateTo("Follow Ups");
+                      }}
+                    >
+                      <strong>{attentionCount} follow up{attentionCount > 1 ? "s" : ""} need attention</strong>
+                      <small>Open follow ups</small>
+                    </button>
+                  )}
+
+                  {reminders.map((item) => {
+                    const lead = leadsById.get(item.lead_id);
+                    return (
+                      <button
+                        type="button"
+                        className="notif-item reminder"
+                        key={`r-${item.id}`}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          navigateTo("Confirmed");
+                        }}
+                      >
+                        <strong>Reminder: {lead ? lead.full_name : "Appointment"} at {formatTime(item.starts_at)}</strong>
+                        <small>{reminderLabel(item)}</small>
+                      </button>
+                    );
+                  })}
+
+                  {notifications.map((item) => (
+                    <div className={`notif-item ${item.read ? "" : "unread"}`} key={item.id}>
+                      <strong>{item.text}</strong>
+                      <small>{formatDateTime(item.at)}</small>
+                    </div>
+                  ))}
+
+                  {notifications.length === 0 && reminders.length === 0 && attentionCount === 0 && (
+                    <p className="subtle-text card-empty">You are all caught up.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1265,8 +1666,8 @@ const filteredLeads = useMemo(() => {
                       <Icon name="sparkle" />
                     </span>
                     <div>
-                      <strong>{newCount}</strong>
-                      <span>New Leads</span>
+                      <strong>{enquiryCount}</strong>
+                      <span>Enquiries</span>
                     </div>
                   </div>
 
@@ -1275,7 +1676,7 @@ const filteredLeads = useMemo(() => {
                       <Icon name="clock" />
                     </span>
                     <div>
-                      <strong>{followUpCount}</strong>
+                      <strong>{openFollowUpCount}</strong>
                       <span>Follow Ups</span>
                     </div>
                   </div>
@@ -1285,8 +1686,8 @@ const filteredLeads = useMemo(() => {
                       <Icon name="check" />
                     </span>
                     <div>
-                      <strong>{convertedCount}</strong>
-                      <span>Converted</span>
+                      <strong>{confirmedCount}</strong>
+                      <span>Confirmed</span>
                     </div>
                   </div>
                 </div>
@@ -1295,7 +1696,7 @@ const filteredLeads = useMemo(() => {
               <div className="hero-progress">
                 <span className="progress-title">LEAD ENGAGEMENT</span>
                 <ProgressRing value={engagedPercent} label="Engaged" />
-                <p>Share of leads that have been contacted or converted.</p>
+                <p>Share of leads that have moved past the first enquiry.</p>
               </div>
             </section>
 
@@ -1389,11 +1790,10 @@ const filteredLeads = useMemo(() => {
 
                 <div className="status-bars">
                   {[
-                    { name: "New", count: newCount, color: "bar-amber" },
-                    { name: "Contacted", count: contactedCount, color: "bar-brown" },
-                    { name: "Follow Up", count: followUpCount, color: "bar-beige" },
-                    { name: "Converted", count: convertedCount, color: "bar-muted" },
-                    { name: "Lost", count: lostCount, color: "bar-lost" },
+                    { name: "Enquiry", count: enquiryCount, color: "bar-amber" },
+                    { name: "Yet to Confirm", count: yetToConfirmCount, color: "bar-beige" },
+                    { name: "Will Inform", count: willInformCount, color: "bar-brown" },
+                    { name: "Confirmed", count: confirmedCount, color: "bar-muted" },
                   ].map((item) => (
                     <button
                       key={item.name}
@@ -1437,9 +1837,9 @@ const filteredLeads = useMemo(() => {
                   </span>
                   <span className="quick-stat-tag">UPCOMING</span>
                 </div>
-                <span className="quick-stat-label">Appointments</span>
-                <strong>—</strong>
-                <button onClick={() => navigateTo("Appointments")}>View appointments ↗</button>
+                <span className="quick-stat-label">Confirmed appointments</span>
+                <strong>{appointmentsState === "ready" ? upcomingAppointments.length : "—"}</strong>
+                <button onClick={() => navigateTo("Confirmed")}>View confirmed ↗</button>
               </article>
 
               <article className="quick-stat-card">
@@ -1449,9 +1849,9 @@ const filteredLeads = useMemo(() => {
                   </span>
                   <span className="quick-stat-tag">TEAM</span>
                 </div>
-                <span className="quick-stat-label">Assigned counsellors</span>
+                <span className="quick-stat-label">Assigned staff</span>
                 <strong>{staffCount}</strong>
-                <button onClick={() => navigateTo("Counsellors")}>View team ↗</button>
+                <button onClick={() => openPage("Psychologists")}>View psychologists ↗</button>
               </article>
 
               <article className="quick-stat-card">
@@ -1459,11 +1859,11 @@ const filteredLeads = useMemo(() => {
                   <span className="quick-stat-icon">
                     <Icon name="check" />
                   </span>
-                  <span className="quick-stat-tag">COMPLETED</span>
+                  <span className="quick-stat-tag">CONFIRMED</span>
                 </div>
-                <span className="quick-stat-label">Converted leads</span>
-                <strong>{convertedCount}</strong>
-                <button onClick={() => goToLeads("Converted")}>View converted ↗</button>
+                <span className="quick-stat-label">Confirmed leads</span>
+                <strong>{confirmedCount}</strong>
+                <button onClick={() => goToLeads("Confirmed")}>View confirmed ↗</button>
               </article>
             </section>
 
@@ -1484,8 +1884,8 @@ const filteredLeads = useMemo(() => {
                 <div className="table-tabs">
                   {[
                     { label: "All leads", value: "All", count: totalLeads },
-                    { label: "New", value: "New", count: newCount },
-                    { label: "Follow ups", value: "Follow Up", count: followUpCount },
+                    { label: "Enquiry", value: "Enquiry", count: enquiryCount },
+                    { label: "Yet to confirm", value: "Yet to Confirm", count: yetToConfirmCount },
                   ].map((tab) => (
                     <button
                       key={tab.value}
@@ -1633,7 +2033,209 @@ const filteredLeads = useMemo(() => {
           </section>
         )}
 
-        {["Appointments", "Counsellors", "Reports"].includes(activePage) && (
+        {activePage === "Appointments" && (
+          <section className="appt-page">
+            <header className="appt-page-head">
+              <div>
+                <span className="eyebrow">SCHEDULE</span>
+                <h2>Appointments</h2>
+                <p>Pick a date to see bookings and free slots. Booked appointments are listed on the Confirmed page.</p>
+              </div>
+              {canScheduleAppointments && (
+                <button className="primary-button" onClick={() => openBooking()}>
+                  <Icon name="plus" /> Book appointment
+                </button>
+              )}
+            </header>
+
+            <div className="appt-stats">
+              <article className="appt-stat">
+                <span>Today</span>
+                <strong>{todayAppointments.length}</strong>
+                <small>appointments</small>
+              </article>
+              <article className="appt-stat">
+                <span>Next 7 days</span>
+                <strong>{weekAppointments.length}</strong>
+                <small>booked</small>
+              </article>
+              <article className="appt-stat">
+                <span>Awaiting confirmation</span>
+                <strong>{unconfirmedLeads.length}</strong>
+                <small>leads</small>
+              </article>
+              <article className="appt-stat">
+                <span>Ready to book</span>
+                <strong>{confirmedWithoutBooking.length}</strong>
+                <small>confirmed leads</small>
+              </article>
+            </div>
+
+            {renderReminders()}
+
+            <div className="appt-layout">
+              <article className="appt-card">
+                {!isPsychologistUser && (
+                  <label className="cal-filter">
+                    <span>Psychologist</span>
+                    <select value={calPsychologist} onChange={(event) => setCalPsychologist(event.target.value)}>
+                      <option value="all">All psychologists</option>
+                      {schedulablePsychologists.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <MonthGrid
+                  anchor={calAnchor}
+                  onAnchorChange={setCalAnchor}
+                  selected={calDay}
+                  today={now ? startOfDay(now) : null}
+                  getMeta={calendarMeta}
+                  onSelect={setCalDay}
+                />
+              </article>
+
+              <article className="appt-card appt-day">
+                {calDay ? (
+                  <>
+                    <header className="appt-day-head">
+                      <strong>{calDay.getDate()}</strong>
+                      <span>
+                        {calDay.toLocaleDateString("en-GB", { weekday: "long" })}
+                        <small>{calDay.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</small>
+                      </span>
+                    </header>
+
+                    <h4 className="appt-sub">Booked</h4>
+                    {renderAppointmentTable(
+                      appointments
+                        .filter(
+                          (item) =>
+                            isSameDay(new Date(item.starts_at), calDay) &&
+                            (calPsychologist === "all" || String(item.psychologist_id) === String(calPsychologist))
+                        )
+                        .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)),
+                      "No appointments on this day."
+                    )}
+
+                    <h4 className="appt-sub">Free slots</h4>
+                    {schedulablePsychologists
+                      .filter((item) => calPsychologist === "all" || String(item.id) === String(calPsychologist))
+                      .map((item) => {
+                        const free = slotsForDay(periodsFor(availability, item.id), calDay, appointments, {
+                          psychologistId: item.id,
+                          now: now || new Date(),
+                        }).filter((slot) => slot.free);
+                        return (
+                          <div className="free-slots" key={item.id}>
+                            <span className="free-name">{item.name}</span>
+                            {free.length === 0 ? (
+                              <span className="appt-empty inline">No free slots</span>
+                            ) : (
+                              <div className="slot-grid">
+                                {free.map((slot) => (
+                                  <span className="slot static" key={slot.start.toISOString()}>
+                                    {formatSlotTime(slot.start)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </>
+                ) : (
+                  <div className="appt-placeholder">
+                    <Icon name="calendar" />
+                    <strong>Select a date</strong>
+                    <p>Dates with a dot have free slots. A number shows how many appointments are already booked.</p>
+                  </div>
+                )}
+              </article>
+            </div>
+
+            <article className="appt-card">
+              <header className="appt-card-head">
+                <div>
+                  <h3>Awaiting confirmation</h3>
+                  <p>These leads can be booked once their status is Confirmed.</p>
+                </div>
+                <span className="appt-count">{unconfirmedLeads.length}</span>
+              </header>
+              {renderLeadTable(unconfirmedLeads, "No unconfirmed leads.")}
+            </article>
+          </section>
+        )}
+
+        {activePage === "Confirmed" && (
+          <section className="appt-page">
+            <header className="appt-page-head">
+              <div>
+                <span className="eyebrow">CONFIRMED</span>
+                <h2>Confirmed appointments</h2>
+                <p>Booked appointments for confirmed leads. Reschedule or update the status from here.</p>
+              </div>
+              {canScheduleAppointments && (
+                <button className="primary-button" onClick={() => openBooking()}>
+                  <Icon name="plus" /> Book appointment
+                </button>
+              )}
+            </header>
+
+            {renderReminders()}
+
+            <article className="appt-card">
+              <header className="appt-card-head">
+                <div>
+                  <h3>Upcoming</h3>
+                  <p>Sorted by date and time.</p>
+                </div>
+                <span className="appt-count">{upcomingAppointments.length}</span>
+              </header>
+              {renderAppointmentTable(
+                [...upcomingAppointments].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)),
+                "No upcoming confirmed appointments."
+              )}
+            </article>
+
+            {confirmedWithoutBooking.length > 0 && (
+              <article className="appt-card">
+                <header className="appt-card-head">
+                  <div>
+                    <h3>Confirmed, not booked yet</h3>
+                    <p>Pick a psychologist and a free slot for these leads.</p>
+                  </div>
+                  <span className="appt-count">{confirmedWithoutBooking.length}</span>
+                </header>
+                {renderLeadTable(confirmedWithoutBooking, "", (lead) =>
+                  canScheduleAppointments ? (
+                    <button type="button" className="appt-btn dark" onClick={() => openBooking(lead)}>
+                      Book
+                    </button>
+                  ) : null
+                )}
+              </article>
+            )}
+
+            {pastAppointments.length > 0 && (
+              <article className="appt-card">
+                <header className="appt-card-head">
+                  <div>
+                    <h3>History</h3>
+                    <p>Completed, cancelled and missed.</p>
+                  </div>
+                  <span className="appt-count">{pastAppointments.length}</span>
+                </header>
+                {renderAppointmentTable(pastAppointments, "")}
+              </article>
+            )}
+          </section>
+        )}
+
+        {activePage === "Reports" && (
           <section className="surface placeholder-page">
             <div className="placeholder-icon">
               <Icon name={navigation.find((item) => item.name === activePage)?.icon || "settings"} />
@@ -1658,6 +2260,7 @@ const filteredLeads = useMemo(() => {
         <AddLeadModal
           leads={leads}
           staffOptions={staffOptions}
+          currentStaffName={currentStaff.name}
           onClose={() => setShowForm(false)}
           onCreate={handleCreateLead}
           createError={createLeadError}
@@ -1703,6 +2306,15 @@ const filteredLeads = useMemo(() => {
           lead={selectedLead}
           now={now}
           staffOptions={staffOptions}
+          currentStaffName={currentStaff.name}
+          canUpdateStatus={canEditStatuses}
+          appointments={appointmentsByLead[selectedLead.id] || []}
+          psychologistNames={psychologistNames}
+          canManageAppointment={canManageAppointment}
+          canScheduleAppointments={canScheduleAppointments}
+          onRequestBooking={openBooking}
+          onRequestReschedule={openReschedule}
+          onUpdateAppointmentStatus={changeAppointmentStatus}
           onClose={closeLeadDetails}
           onSave={handleSaveLead}
           onLoadActivities={loadLeadActivities}
@@ -1716,6 +2328,22 @@ const filteredLeads = useMemo(() => {
         />
       )}
 
+
+      {bookingDialog && (
+        <BookingModal
+          key={bookingDialog.mode + (bookingDialog.appointment ? bookingDialog.appointment.id : bookingDialog.lead ? bookingDialog.lead.id : "new")}
+          mode={bookingDialog.mode}
+          lockedLead={bookingDialog.lead}
+          appointment={bookingDialog.appointment}
+          leads={leads.filter((lead) => lead.status === "Confirmed")}
+          psychologists={schedulablePsychologists}
+          availability={availability}
+          appointments={appointments}
+          now={now}
+          onClose={() => setBookingDialog(null)}
+          onSubmit={submitBooking}
+        />
+      )}
 
       {notice && (
         <div

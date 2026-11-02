@@ -6,7 +6,6 @@ import Icon from "./Icon";
 import ModalShell from "./ModalShell";
 import StatusBadge from "./StatusBadge";
 import {
-  CLOSED_STATUSES,
   CONTACT_METHODS,
   NOTES_LIMIT,
   SERVICES,
@@ -15,6 +14,7 @@ import {
   dueLabel,
   formatDate,
   formatDateTime,
+  formatTime,
   getActivity,
   getFollowUpState,
   parseDate,
@@ -23,8 +23,7 @@ import {
   toInputValue,
   whatsappLink,
 } from "../lib/leads";
-
-const STAGES = ["New", "Contacted", "Follow Up", "Converted"];
+import { APPOINTMENT_STATUSES } from "../lib/appointmentsApi";
 
 const ACTIVITY_ICONS = {
   created: "plus",
@@ -139,7 +138,6 @@ function makeDraft(lead) {
     assigned_staff: lead.assigned_staff || "",
     service_interest: lead.service_interest || SERVICES[0],
     notes: lead.notes || "",
-    not_converted_reason: lead.not_converted_reason || "",
   };
 }
 
@@ -160,16 +158,11 @@ function validateDraft(draft, lead) {
   ) {
     errors.contact_method = "Choose a contact method.";
   }
-  if (draft.status === "Lost" && !draft.not_converted_reason.trim()) {
-    errors.not_converted_reason = "Add a short reason so the team knows why this lead was lost.";
-  }
-  if (draft.status === "Follow Up" && !draft.next_follow_up_at) {
-    errors.next_follow_up_at = "Choose a follow-up date and time for leads in Follow Up.";
-  } else if (draft.next_follow_up_at && !parseDate(draft.next_follow_up_at)) {
+  // The follow-up date is optional for every status.
+  if (draft.next_follow_up_at && !parseDate(draft.next_follow_up_at)) {
     errors.next_follow_up_at = "Enter a valid date and time.";
   } else if (
     draft.next_follow_up_at &&
-    !CLOSED_STATUSES.includes(draft.status) &&
     draft.next_follow_up_at !== toInputValue(lead.next_follow_up_at) &&
     parseDate(draft.next_follow_up_at).getTime() < Date.now() - 60000
   ) {
@@ -186,13 +179,11 @@ function validateDraft(draft, lead) {
 function describeChanges(lead, draft) {
   const base = makeDraft(lead);
   const entries = [];
-  const closed = CLOSED_STATUSES.includes(draft.status);
-  const followUp = closed ? "" : draft.next_follow_up_at;
+  const followUp = draft.next_follow_up_at;
   const staff = draft.assigned_staff.trim();
 
   if (draft.status !== base.status) {
-    const reason = draft.status === "Lost" ? `. Reason: ${draft.not_converted_reason.trim()}` : "";
-    entries.push({ type: "status", text: `Status changed from ${base.status} to ${draft.status}${reason}` });
+    entries.push({ type: "status", text: `Status changed from ${base.status} to ${draft.status}` });
   }
 
   if (base.next_follow_up_at !== followUp) {
@@ -209,11 +200,6 @@ function describeChanges(lead, draft) {
   const detailFields = ["source", "contact_method", "service_interest", "notes"];
   if (detailFields.some((field) => base[field].trim() !== draft[field].trim())) {
     entries.push({ type: "update", text: "Lead details updated" });
-  }
-
-  // A reason edit on an already-lost lead is still worth recording.
-  if (entries.length === 0 && draft.status === "Lost" && base.not_converted_reason.trim() !== draft.not_converted_reason.trim()) {
-    entries.push({ type: "update", text: `Reason updated: ${draft.not_converted_reason.trim()}` });
   }
 
   return entries;
@@ -243,6 +229,14 @@ export default function LeadDetailsModal({
   onDelete,
   onCompleteFollowUp,
   onSnoozeFollowUp,
+  canUpdateStatus = true,
+  appointments = [],
+  psychologistNames = {},
+  canManageAppointment = () => true,
+  canScheduleAppointments = true,
+  onRequestBooking,
+  onRequestReschedule,
+  onUpdateAppointmentStatus,
 }) {
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(() => makeDraft(lead));
@@ -263,13 +257,12 @@ export default function LeadDetailsModal({
   const activityIdRef = useRef(null);
   const savingRef = useRef(false);
   const editSavingRef = useRef(false);
-  // "Convert" / "Mark as lost" confirmation panel on the Overview tab.
-  const [outcomeAction, setOutcomeAction] = useState(null); // null | "convert" | "lost"
-  const [outcomeReason, setOutcomeReason] = useState("");
-  const [outcomeSubmitted, setOutcomeSubmitted] = useState(false);
-  const [outcomeSaving, setOutcomeSaving] = useState(false);
-  const [outcomeError, setOutcomeError] = useState("");
-  const outcomeSavingRef = useRef(false);
+  // Quick status change on the Overview tab.
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const statusSavingRef = useRef(false);
+  const [apptBusyId, setApptBusyId] = useState(null);
+  const [apptError, setApptError] = useState("");
 
   // Loads the saved activity history for this lead:
   //  - on mount and whenever the parent records new system history (activityRevision), so the badge is right
@@ -323,13 +316,10 @@ export default function LeadDetailsModal({
   const activityStaffChoices = [
     ...new Set([...staffOptions, (lead.assigned_staff || "").trim(), currentStaffName].filter(Boolean)),
   ].sort();
-  const closed = CLOSED_STATUSES.includes(lead.status);
   const followUpState = getFollowUpState(lead, now);
-  const draftClosed = CLOSED_STATUSES.includes(draft.status);
   const errors = validateDraft(draft, lead);
   const visibleError = (field) => (submitted ? errors[field] : undefined);
   const editDirty = tab === "edit" && JSON.stringify(draft) !== JSON.stringify(makeDraft(lead));
-  const stageIndex = STAGES.indexOf(lead.status);
 
   const setField = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
   const onChange = (field) => (event) => setField(field, event.target.value);
@@ -337,87 +327,45 @@ export default function LeadDetailsModal({
 
   function requestClose() {
     const activityDirty = Boolean(activityDraft.notes.trim() || activityDraft.outcome);
-    const outcomeDirty = outcomeAction === "lost" && Boolean(outcomeReason.trim());
-    if ((editDirty || activityDirty || outcomeDirty) && !window.confirm("Close without saving your changes?")) return;
+    if ((editDirty || activityDirty) && !window.confirm("Close without saving your changes?")) return;
     onClose();
   }
 
-  function openOutcome(action) {
-    if (outcomeSavingRef.current) return;
-    setOutcomeAction(action);
-    setOutcomeReason("");
-    setOutcomeSubmitted(false);
-    setOutcomeError("");
-  }
-
-  function cancelOutcome() {
-    if (outcomeSavingRef.current) return; // cannot cancel while a save is in flight
-    setOutcomeAction(null);
-    setOutcomeReason("");
-    setOutcomeSubmitted(false);
-    setOutcomeError("");
-  }
-
-  // Converts the lead or marks it Lost. Uses the same save path as the Edit tab, so the status, the reason,
-  // the cleared follow up and the history entries are saved together and nothing changes if saving fails.
-  async function confirmOutcome(event) {
-    event.preventDefault();
-    if (outcomeSavingRef.current || !outcomeAction) return; // block duplicate submissions
-    if (CLOSED_STATUSES.includes(lead.status)) {
-      setOutcomeError("This lead is already closed. Its status cannot be changed again.");
+  async function changeStatus(newStatus) {
+    if (statusSavingRef.current || newStatus === lead.status) return;
+    if (!canUpdateStatus) {
+      setStatusError("You do not have permission to change lead statuses.");
       return;
     }
-    const status = outcomeAction === "convert" ? "Converted" : "Lost";
-
-    if (lead.status === status) {
-      // Already done (for example a second click): nothing to save, and no second history entry.
-      setOutcomeAction(null);
-      return;
-    }
-
-    const reason = outcomeReason.trim();
-    setOutcomeSubmitted(true);
-    if (status === "Lost" && (!reason || reason.length > NOTES_LIMIT)) {
-      document.getElementById("outcome-reason")?.focus();
-      return;
-    }
-
-    const target = { ...makeDraft(lead), status, not_converted_reason: status === "Lost" ? reason : "" };
-    const entries = describeChanges(lead, target);
-
-    outcomeSavingRef.current = true;
-    setOutcomeSaving(true);
-    setOutcomeError("");
+    statusSavingRef.current = true;
+    setStatusSaving(true);
+    setStatusError("");
 
     let result = null;
     try {
       result = await onSave(
         lead.id,
-        {
-          status,
-          assigned_staff: (lead.assigned_staff || "").trim(),
-          next_follow_up_at: "", // converted and lost leads do not need a follow up
-          not_converted_reason: target.not_converted_reason,
-          service_interest: lead.service_interest || SERVICES[0],
-          notes: (lead.notes || "").trim(),
-        },
-        entries
+        { status: newStatus },
+        [{ type: "status", text: `Status changed from ${lead.status} to ${newStatus}` }]
       );
     } catch {
       result = null;
     }
 
-    outcomeSavingRef.current = false;
-    setOutcomeSaving(false);
-
+    statusSavingRef.current = false;
+    setStatusSaving(false);
     if (!result || !result.ok) {
-      // The lead keeps its saved status; the panel stays open so nothing typed is lost.
-      setOutcomeError((result && result.message) || "Could not save this change. Please try again.");
-      return;
+      setStatusError((result && result.message) || "Could not save this change. Please try again.");
     }
-    setOutcomeAction(null);
-    setOutcomeReason("");
-    setOutcomeSubmitted(false);
+  }
+
+  async function changeAppointmentStatus(appointment, status) {
+    if (apptBusyId || status === appointment.status) return;
+    setApptBusyId(appointment.id);
+    setApptError("");
+    const result = await onUpdateAppointmentStatus(appointment, status);
+    setApptBusyId(null);
+    if (!result || !result.ok) setApptError((result && result.message) || "Could not update the appointment.");
   }
 
   function openEdit() {
@@ -432,7 +380,7 @@ export default function LeadDetailsModal({
     if (editSavingRef.current) return; // block duplicate submissions
     setSubmitted(true);
 
-    const first = ["source", "contact_method", "next_follow_up_at", "notes", "not_converted_reason"].find(
+    const first = ["source", "contact_method", "next_follow_up_at", "notes"].find(
       (field) => errors[field]
     );
     if (first) {
@@ -440,8 +388,8 @@ export default function LeadDetailsModal({
       return;
     }
 
-    if (draft.status !== lead.status && (CLOSED_STATUSES.includes(draft.status) || CLOSED_STATUSES.includes(lead.status))) {
-      setEditSaveError("Use the Convert or Mark as lost confirmation on the Overview tab to change a lead to a closed status.");
+    if (draft.status !== lead.status && !canUpdateStatus) {
+      setEditSaveError("You do not have permission to change lead statuses.");
       return;
     }
 
@@ -462,8 +410,7 @@ export default function LeadDetailsModal({
         source: draft.source,
         contact_method: draft.contact_method,
         assigned_staff: draft.assigned_staff.trim(),
-        next_follow_up_at: draftClosed ? "" : draft.next_follow_up_at,
-        not_converted_reason: draft.status === "Lost" ? draft.not_converted_reason.trim() : "",
+        next_follow_up_at: draft.next_follow_up_at,
         service_interest: draft.service_interest,
         notes: draft.notes.trim(),
       },
@@ -637,11 +584,7 @@ export default function LeadDetailsModal({
                 <div className={`followup-banner ${followUpState === "overdue" ? "overdue" : ""}`}>
                   <div>
                     <strong>
-                      {closed
-                        ? "No follow up needed"
-                        : lead.next_follow_up_at
-                          ? formatDateTime(lead.next_follow_up_at)
-                          : "Not scheduled yet"}
+                      {lead.next_follow_up_at ? formatDateTime(lead.next_follow_up_at) : "Not scheduled yet"}
                     </strong>
                     {followUpState && <small>{dueLabel(lead, now)}</small>}
                   </div>
@@ -662,7 +605,7 @@ export default function LeadDetailsModal({
                     </div>
                   )}
 
-                  {!closed && !lead.next_follow_up_at && (
+                  {!lead.next_follow_up_at && (
                     <button type="button" className="mini-button" onClick={openEdit}>
                       Schedule one
                     </button>
@@ -671,96 +614,92 @@ export default function LeadDetailsModal({
               </section>
 
               <section className="info-section">
-                <h4>Progress</h4>
-                {lead.status === "Lost" ? (
-                  <div className="stage-lost" role="status">
-                    <strong>Marked as lost</strong>
-                    <span className="lost-reason">
-                      {lead.not_converted_reason ? lead.not_converted_reason : "No reason was recorded."}
-                    </span>
-                  </div>
-                ) : (
-                  <ol className="stage-track" aria-label="Lead progress">
-                    {STAGES.map((stage, index) => (
-                      <li
-                        key={stage}
-                        className={`stage ${index < stageIndex ? "done" : ""} ${index === stageIndex ? "current" : ""}`}
-                        aria-current={index === stageIndex ? "step" : undefined}
-                      >
-                        <span className="stage-dot">{index < stageIndex ? <Icon name="check" /> : index + 1}</span>
-                        <span>{stage}</span>
-                      </li>
+                <h4>Status</h4>
+                <Field id="overview-status" label="Lead status">
+                  <select
+                    id="overview-status"
+                    value={lead.status}
+                    disabled={statusSaving || !canUpdateStatus}
+                    onChange={(event) => void changeStatus(event.target.value)}
+                  >
+                    {[...new Set([...STATUSES, lead.status])].map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
                     ))}
-                  </ol>
+                  </select>
+                </Field>
+                {!canUpdateStatus && <p className="subtle-text">Your role cannot change lead statuses.</p>}
+                {statusSaving && (
+                  <p className="subtle-text" role="status">
+                    Saving…
+                  </p>
+                )}
+                {statusError && (
+                  <p className="field-error" role="alert">
+                    {statusError}
+                  </p>
+                )}
+              </section>
+
+              <section className="info-section">
+                <h4>Appointments</h4>
+
+                {lead.status !== "Confirmed" && (
+                  <p className="subtle-text">
+                    This lead is {lead.status}, so it has no confirmed appointment. Set the status to Confirmed to book one.
+                  </p>
                 )}
 
-                {outcomeAction ? (
-                  <form className="outcome-confirm" noValidate onSubmit={confirmOutcome} aria-labelledby="outcome-title">
-                    <strong id="outcome-title">
-                      {outcomeAction === "convert" ? `Convert ${lead.full_name}?` : `Mark ${lead.full_name} as lost?`}
-                    </strong>
-                    <p>
-                      {outcomeAction === "convert"
-                        ? "The status becomes Converted and any scheduled follow up is cleared. Activity history is kept."
-                        : "The status becomes Lost and any scheduled follow up is cleared. Activity history is kept."}
-                    </p>
-
-                    {outcomeAction === "lost" && (
-                      <Field
-                        id="outcome-reason"
-                        label="Reason not converted"
-                        required
-                        error={
-                          outcomeSubmitted && !outcomeReason.trim()
-                            ? "Add a short reason so the team knows why this lead was lost."
-                            : outcomeSubmitted && outcomeReason.trim().length > NOTES_LIMIT
-                              ? `Keep the reason under ${NOTES_LIMIT} characters.`
-                              : undefined
-                        }
-                      >
-                        <textarea
-                          {...fieldProps(
-                            "outcome-reason",
-                            outcomeSubmitted && (!outcomeReason.trim() || outcomeReason.trim().length > NOTES_LIMIT)
-                              ? "invalid"
-                              : undefined
+                {appointments.length > 0 && (
+                  <ul className="activity-list">
+                    {appointments.map((item) => (
+                      <li key={item.id} className="activity-item">
+                        <div>
+                          <p className="activity-text">
+                            <strong>{formatDateTime(item.starts_at)}</strong>
+                            {item.ends_at ? ` – ${formatTime(item.ends_at)}` : ""}
+                          </p>
+                          <p className="activity-text">{psychologistNames[item.psychologist_id] || "Psychologist not set"}</p>
+                          {item.notes ? <p className="activity-text">{item.notes}</p> : null}
+                          {canManageAppointment(item) ? (
+                            <>
+                              <select
+                                aria-label="Appointment status"
+                                value={item.status}
+                                disabled={apptBusyId === item.id}
+                                onChange={(event) => void changeAppointmentStatus(item, event.target.value)}
+                              >
+                                {APPOINTMENT_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
+                              {item.status === "Scheduled" && (
+                                <button type="button" className="mini-button" onClick={() => onRequestReschedule(item)}>
+                                  Reschedule
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="chip small">{item.status}</span>
                           )}
-                          rows={3}
-                          autoFocus
-                          disabled={outcomeSaving}
-                          value={outcomeReason}
-                          onChange={(event) => setOutcomeReason(event.target.value)}
-                          placeholder="For example: chose another provider"
-                        />
-                      </Field>
-                    )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {apptError && (
+                  <p className="field-error" role="alert">
+                    {apptError}
+                  </p>
+                )}
 
-                    {outcomeError && (
-                      <p className="field-error" role="alert">
-                        {outcomeError}
-                      </p>
-                    )}
-
-                    <div className="outcome-buttons">
-                      <button type="button" className="secondary-button" onClick={cancelOutcome} disabled={outcomeSaving}>
-                        Cancel
-                      </button>
-                      <button type="submit" className="primary-button" disabled={outcomeSaving}>
-                        {outcomeSaving ? "Saving…" : outcomeAction === "convert" ? "Convert lead" : "Mark as lost"}
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  !closed && (
-                    <div className="outcome-actions">
-                      <button type="button" className="mini-button primary" onClick={() => openOutcome("convert")}>
-                        <Icon name="check" /> Convert lead
-                      </button>
-                      <button type="button" className="mini-button danger" onClick={() => openOutcome("lost")}>
-                        Mark as lost
-                      </button>
-                    </div>
-                  )
+                {lead.status === "Confirmed" && canScheduleAppointments && (
+                  <button type="button" className="mini-button primary" onClick={() => onRequestBooking(lead)}>
+                    <Icon name="calendar" /> Book appointment
+                  </button>
                 )}
               </section>
 
@@ -954,10 +893,10 @@ export default function LeadDetailsModal({
                   <select
                     {...props("status")}
                     value={draft.status}
-                    disabled={CLOSED_STATUSES.includes(lead.status)}
+                    disabled={!canUpdateStatus}
                     onChange={onChange("status")}
                   >
-                    {STATUSES.filter((status) => !CLOSED_STATUSES.includes(status) || status === lead.status).map((status) => (
+                    {[...new Set([...STATUSES, lead.status])].map((status) => (
                       <option key={status}>{status}</option>
                     ))}
                   </select>
@@ -967,22 +906,17 @@ export default function LeadDetailsModal({
                   id="edit-next_follow_up_at"
                   label="Next follow-up"
                   error={visibleError("next_follow_up_at")}
-                  hint={draftClosed ? "Converted and lost leads do not need a follow up." : undefined}
+                  hint="Optional. Leave empty if no follow up is needed."
                 >
                   <input
-                    {...fieldProps(
-                      "edit-next_follow_up_at",
-                      visibleError("next_follow_up_at"),
-                      draftClosed ? "hint" : undefined
-                    )}
+                    {...fieldProps("edit-next_follow_up_at", visibleError("next_follow_up_at"), "hint")}
                     type="datetime-local"
-                    disabled={draftClosed}
-                    value={draftClosed ? "" : draft.next_follow_up_at}
+                    value={draft.next_follow_up_at}
                     onChange={onChange("next_follow_up_at")}
                   />
                 </Field>
 
-                {!draftClosed && (
+                {(
                   <div className="field span-2">
                     <div className="quick-chips">
                       {[
@@ -1006,23 +940,6 @@ export default function LeadDetailsModal({
                       )}
                     </div>
                   </div>
-                )}
-
-                {draft.status === "Lost" && (
-                  <Field
-                    id="edit-not_converted_reason"
-                    label="Reason not converted"
-                    required
-                    className="span-2"
-                    error={visibleError("not_converted_reason")}
-                  >
-                    <input
-                      {...props("not_converted_reason")}
-                      value={draft.not_converted_reason}
-                      onChange={onChange("not_converted_reason")}
-                      placeholder="For example: chose another provider"
-                    />
-                  </Field>
                 )}
 
                 <Field id="edit-assigned_staff" label="Assigned staff">

@@ -12,3 +12,14 @@ export function getStaffName(user) {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }
+
+// Role comes from app_metadata.role, which users cannot edit. Row Level Security is the real enforcement.
+export function getStaffRole(user) {
+  const role = user && user.app_metadata && user.app_metadata.role;
+  return typeof role === "string" ? role.trim().toLowerCase() : "";
+}
+
+// Who may change lead and appointment statuses. Psychologists are read-only here.
+export function canUpdateStatuses(role) {
+  return role !== "psychologist";
+}

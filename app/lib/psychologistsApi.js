@@ -29,6 +29,16 @@ export async function getPsychologist(id) {
   return mapPsychologist(data);
 }
 
+// The profile linked to a Supabase login (existing auth_user_id mapping). Returns null when none is linked or visible.
+export async function getPsychologistByAuthUser(authUserId) {
+  const supabase = createClient();
+  const { data, error } = await supabase.from("psychologists").select("*").eq("auth_user_id", authUserId).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  resolveColumns(data);
+  return mapPsychologist(data);
+}
+
 export async function createPsychologist(values) {
   const supabase = createClient();
   const { data, error } = await supabase.from("psychologists").insert(toPsychologistPayload(values)).select("*").single();

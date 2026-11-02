@@ -1,7 +1,11 @@
 /* Shared constants and helpers for the Kappiness CRM lead screens. */
 
-export const STATUSES = ["New", "Contacted", "Follow Up", "Converted", "Lost"];
-export const CLOSED_STATUSES = ["Converted", "Lost"];
+export const STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform", "Confirmed"];
+// No status closes a lead any more, so follow ups can always be scheduled.
+export const CLOSED_STATUSES = [];
+export const DEFAULT_STATUS = "Enquiry";
+// Leads in these statuses have no confirmed appointment yet.
+export const UNCONFIRMED_STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform"];
 
 export const SOURCES = [
   "Google Ad",
