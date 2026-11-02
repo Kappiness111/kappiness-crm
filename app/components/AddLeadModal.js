@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
@@ -40,17 +40,20 @@ function Box({ id, label, required = false, error, hint, className = "", childre
   );
 }
 
-const initialValues = {
-  full_name: "",
-  phone: "",
-  email: "",
-  source: "",
-  contact_method: "",
-  service_interest: "Individual counselling",
-  notes: "",
-  assigned_staff: "",
-  next_follow_up_at: "",
-};
+// Assigned staff starts as the signed-in account's name.
+function makeInitialValues(staffName = "") {
+  return {
+    full_name: "",
+    phone: "",
+    email: "",
+    source: "",
+    contact_method: "",
+    service_interest: "Individual counselling",
+    notes: "",
+    assigned_staff: staffName,
+    next_follow_up_at: "",
+  };
+}
 
 const FIELD_ORDER = [
   "full_name",
@@ -105,15 +108,23 @@ function validate(values, leads) {
 export default function AddLeadModal({
   leads,
   staffOptions = [],
+  currentStaffName = "",
   onClose,
   onCreate,
   createError = "",
 }) {
+  const initialValues = useMemo(() => makeInitialValues(currentStaffName), [currentStaffName]);
   const [values, setValues] = useState(initialValues);
   const [touched, setTouched] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const nameRef = useRef(null);
+
+  // If the account name arrives after the form opened, fill it in (only while the field is still empty).
+  useEffect(() => {
+    if (!currentStaffName) return;
+    setValues((current) => (current.assigned_staff ? current : { ...current, assigned_staff: currentStaffName }));
+  }, [currentStaffName]);
 
   const errors = useMemo(() => validate(values, leads), [values, leads]);
   const errorCount = Object.keys(errors).length;
@@ -197,7 +208,7 @@ export default function AddLeadModal({
           </div>
           <div>
             <dt>Created by</dt>
-            <dd>CRM Admin</dd>
+            <dd>{currentStaffName || "CRM Admin"}</dd>
           </div>
         </dl>
       </div>
