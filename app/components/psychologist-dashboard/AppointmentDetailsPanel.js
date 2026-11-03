@@ -1,130 +1,142 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Icon from "../Icon";
+import ModalShell from "../ModalShell";
 import FollowUpRecommendationForm from "./FollowUpRecommendationForm";
 import { OPEN_STATUSES, STATUS_META, TYPE_META, formatClock, formatLongDate } from "../../lib/calendar";
-import styles from "./dashboard.module.css";
 
-const BADGE_CLASS = {
-  confirmed: styles.badgeConfirmed,
-  completed: styles.badgeCompleted,
-  cancelled: styles.badgeCancelled,
-  missed: styles.badgeMissed,
+const STATUS_TONE = {
+  confirmed: "tone-info",
+  scheduled: "tone-info",
+  completed: "tone-success",
+  cancelled: "",
+  rescheduled: "",
+  missed: "tone-danger",
 };
 
-/* Side panel for one appointment. Actions go through the adapter in lib/psychologistAppointments.js,
-   which reports honestly when the backend cannot do something yet. */
-export default function AppointmentDetailsPanel({ appointment, capabilities, busy, onClose, onStatus, onRecommend }) {
-  const [showForm, setShowForm] = useState(false);
-  const closeRef = useRef(onClose);
-
-  useEffect(() => {
-    closeRef.current = onClose;
-  });
-
-  useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (event) => {
-      if (event.key === "Escape") closeRef.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
+/* Side drawer for one appointment in the psychologist workspace.
+   Attendance can be recorded once the start time has passed; a follow-up can be recommended after a completed
+   session. The database enforces the same rules. */
+export default function AppointmentDetailsPanel({ appointment, now = new Date(), busy, onClose, onStatus, onRecommend, onOpenClient, onReschedule }) {
+  const [form, setForm] = useState(null); // null | "recommend" | "cancel"
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState("");
   const isOpen = OPEN_STATUSES.includes(appointment.status);
-  const actionsReady = capabilities.updateStatus || capabilities.recommendFollowUp;
+  const started = appointment.start.getTime() <= now.getTime();
+  const minutes = Math.round((appointment.end - appointment.start) / 60000);
+
+  function submitCancel(event) {
+    event.preventDefault();
+    if (!reason.trim()) {
+      setReasonError("Add a reason for the cancellation.");
+      return;
+    }
+    onStatus(appointment, "cancelled", { reason: reason.trim() });
+  }
 
   return (
-    <div
-      className={styles.overlay}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <aside className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby="appt-title">
-        <header className={styles.drawerHead}>
-          <div>
-            <span className={styles.eyebrow}>Session details</span>
-            <h2 id="appt-title" className={styles.drawerTitle}>{appointment.clientName}</h2>
-          </div>
-          <button className={styles.iconBtn} onClick={onClose} aria-label="Close details">
-            <Icon name="close" />
-          </button>
-        </header>
-
-        <div className={styles.drawerBody}>
-          {!actionsReady && (
-            <div className={styles.notice}>
-              <span className={styles.noticeIcon}><Icon name="info" /></span>
-              <div>
-                <strong>Session actions are not connected yet</strong>
-                Updating status and recommending follow-ups need backend support.
-              </div>
-            </div>
-          )}
-
-          <dl className={styles.kv}>
-            <dt>Date</dt>
-            <dd>{formatLongDate(appointment.start)}</dd>
-            <dt>Time</dt>
-            <dd>{formatClock(appointment.start)} – {formatClock(appointment.end)}</dd>
-            <dt>Session type</dt>
-            <dd>
-              <span className={`${styles.badge} ${appointment.type === "follow_up" ? styles.badgeFollow : ""}`}>
-                {TYPE_META[appointment.type].label}
-              </span>
-            </dd>
-            <dt>Status</dt>
-            <dd>
-              <span className={`${styles.badge} ${BADGE_CLASS[appointment.status] || ""}`}>
-                {STATUS_META[appointment.status].label}
-              </span>
-            </dd>
-            <dt>Follow-up</dt>
-            <dd>
-              {appointment.followUpRecommendedAt
-                ? `Recommended on ${new Date(appointment.followUpRecommendedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
-                : "No follow-up recommended yet"}
-            </dd>
-          </dl>
-
-          <div>
-            <p className={styles.sectionLabel}>Client details</p>
-            <p className={styles.help}>
-              Only details your access allows will appear here. No additional client details are connected yet.
-            </p>
-          </div>
-
-          {showForm && (
-            <FollowUpRecommendationForm
-              appointment={appointment}
-              allowNotes={capabilities.followUpNotes}
-              onSubmit={onRecommend}
-              onCancel={() => setShowForm(false)}
-            />
-          )}
+    <ModalShell variant="drawer" size="sm" labelledBy="appt-title" onRequestClose={onClose}>
+      <header className="modal-head">
+        <div>
+          <p style={{ margin: 0 }}>Appointment</p>
+          <h2 id="appt-title">{appointment.clientName}</h2>
         </div>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close details">
+          <Icon name="close" />
+        </button>
+      </header>
 
-        <footer className={styles.drawerFoot}>
-          {isOpen && (
+      <div className="modal-body">
+        <dl className="kv">
+          <dt>Date</dt>
+          <dd>{formatLongDate(appointment.start)}</dd>
+          <dt>Time</dt>
+          <dd className="num">
+            {formatClock(appointment.start)} – {formatClock(appointment.end)} ({minutes} min)
+          </dd>
+          <dt>Service</dt>
+          <dd>{appointment.serviceType || "—"}</dd>
+          <dt>Type</dt>
+          <dd>
+            <span className={`badge ${appointment.type === "follow_up" ? "tone-warning" : ""}`}>{TYPE_META[appointment.type].label}</span>
+          </dd>
+          <dt>Status</dt>
+          <dd>
+            <span className={`badge ${STATUS_TONE[appointment.status] || ""}`}>
+              <span className="badge-dot" aria-hidden="true" />
+              {STATUS_META[appointment.status].label}
+            </span>
+          </dd>
+          {appointment.notes ? (
             <>
-              <button className={`${styles.btn} ${styles.btnPrimary}`} disabled={busy} onClick={() => onStatus(appointment, "completed")}>
-                <Icon name="check" /> Mark completed
-              </button>
-              <button className={styles.btn} disabled={busy} onClick={() => onStatus(appointment, "missed")}>Mark missed</button>
-              <button className={styles.btn} disabled={busy} onClick={() => onStatus(appointment, "cancelled")}>Mark cancelled</button>
+              <dt>Booking notes</dt>
+              <dd>{appointment.notes}</dd>
             </>
-          )}
-          {!showForm && (
-            <button className={styles.btn} onClick={() => setShowForm(true)}>Recommend follow-up</button>
-          )}
-        </footer>
-      </aside>
-    </div>
+          ) : null}
+        </dl>
+
+        {isOpen && !started && (
+          <p className="subtle-text">Attendance can be recorded once the appointment has started.</p>
+        )}
+
+        {form === "recommend" && (
+          <FollowUpRecommendationForm appointment={appointment} onSubmit={onRecommend} onCancel={() => setForm(null)} />
+        )}
+
+        {form === "cancel" && (
+          <form className="lost-prompt" onSubmit={submitCancel} noValidate style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <strong>Cancel this appointment</strong>
+            <p className="subtle-text" style={{ margin: 0 }}>
+              The record and its original time are kept. The time slot becomes free for other bookings.
+            </p>
+            <div className="field">
+              <label htmlFor="cancel-reason">Reason</label>
+              <textarea id="cancel-reason" rows={2} value={reason} aria-invalid={Boolean(reasonError)} onChange={(event) => { setReason(event.target.value); setReasonError(""); }} />
+              {reasonError ? <p className="field-error" role="alert">{reasonError}</p> : null}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="submit" className="btn btn-danger" disabled={busy}>{busy ? "Cancelling…" : "Cancel appointment"}</button>
+              <button type="button" className="btn" onClick={() => setForm(null)} disabled={busy}>Keep it</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <footer className="modal-foot">
+        {onOpenClient && appointment.clientId && (
+          <button type="button" className="btn" onClick={() => onOpenClient(appointment.clientId)}>
+            Client profile
+          </button>
+        )}
+        {appointment.status === "completed" && form === null && (
+          <button type="button" className="btn" onClick={() => setForm("recommend")}>
+            Recommend follow-up
+          </button>
+        )}
+        {isOpen && form === null && (
+          <>
+            {!started && onReschedule && (
+              <button type="button" className="btn" disabled={busy} onClick={() => onReschedule(appointment)}>
+                Reschedule
+              </button>
+            )}
+            <button type="button" className="btn" disabled={busy} onClick={() => setForm("cancel")}>
+              Cancel…
+            </button>
+            {started && (
+              <>
+                <button type="button" className="btn" disabled={busy} onClick={() => onStatus(appointment, "missed")}>
+                  Missed
+                </button>
+                <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onStatus(appointment, "completed")}>
+                  <Icon name="check" /> Attended
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </footer>
+    </ModalShell>
   );
 }

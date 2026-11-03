@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { validatePsychologist } from "../../lib/psychologists";
 import Dialog from "./Dialog";
-import styles from "./psychologists.module.css";
 
 /* Add / edit psychologist profile.
    The login account is NOT an input: auth_user_id must come from the backend account workflow. */
@@ -45,47 +44,45 @@ export default function PsychologistForm({ mode, psychologist, onSubmit, onClose
       busy={saving}
       footer={
         <>
-          <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
-          <button type="submit" form="psychologist-form" className="primary-button" disabled={saving}>
+          <button type="button" className="btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="psychologist-form" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : editing ? "Save changes" : "Add psychologist"}
           </button>
         </>
       }
     >
-      <form id="psychologist-form" className={styles.dialogBody} onSubmit={handleSubmit} noValidate>
-        {formError ? <div className={styles.formAlert} role="alert">{formError}</div> : null}
+      <form id="psychologist-form" className="modal-body" onSubmit={handleSubmit} noValidate>
+        {formError ? <div className="form-alert" role="alert">{formError}</div> : null}
 
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="psy-name">Full name <span className={styles.required}>*</span></label>
+        <div className="field">
+          <label htmlFor="psy-name">Full name <span className="required">*</span></label>
           <input
             id="psy-name"
-            className={`${styles.input} ${showError("name") ? styles.inputError : ""}`}
+            aria-invalid={Boolean(showError("name"))}
             value={values.name}
             onChange={setField("name")}
             placeholder="Dr. Anita Menon"
             autoComplete="off"
-            aria-invalid={Boolean(showError("name"))}
-            autoFocus
+                        autoFocus
           />
-          {showError("name") ? <p className={styles.fieldError} role="alert">{errors.name}</p> : null}
+          {showError("name") ? <p className="field-error" role="alert">{errors.name}</p> : null}
         </div>
 
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="psy-phone">Phone number <span className={styles.required}>*</span></label>
+        <div className="field">
+          <label htmlFor="psy-phone">Phone number <span className="required">*</span></label>
           <input
             id="psy-phone"
             type="tel"
-            className={`${styles.input} ${showError("phone") ? styles.inputError : ""}`}
+            aria-invalid={Boolean(showError("phone"))}
             value={values.phone}
             onChange={setField("phone")}
             placeholder="+91 98765 43210"
             autoComplete="off"
-            aria-invalid={Boolean(showError("phone"))}
-          />
-          {showError("phone") ? <p className={styles.fieldError} role="alert">{errors.phone}</p> : null}
+                      />
+          {showError("phone") ? <p className="field-error" role="alert">{errors.phone}</p> : null}
         </div>
 
-        <div className={styles.infoPanel}>
+        <div className="form-note">
           <strong>Login account</strong>
           {editing
             ? psychologist.hasLogin
@@ -94,7 +91,7 @@ export default function PsychologistForm({ mode, psychologist, onSubmit, onClose
             : "A login account cannot be created or linked from this screen. Linking an existing Supabase account to a psychologist needs a backend workflow, which is not available yet. This profile will be created without a login."}
         </div>
 
-        <label className={styles.switchRow}>
+        <label className="check-row">
           <input
             type="checkbox"
             checked={values.active}

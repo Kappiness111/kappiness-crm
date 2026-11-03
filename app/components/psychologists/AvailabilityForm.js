@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { DAYS, validateAvailability } from "../../lib/psychologists";
 import Dialog from "./Dialog";
-import styles from "./psychologists.module.css";
 
 /* Add / edit one recurring availability period.
    period = existing period when editing; defaultDay = weekday pre-selected when adding. */
@@ -47,21 +46,21 @@ export default function AvailabilityForm({ period, defaultDay = 1, existingPerio
       small
       footer={
         <>
-          <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Cancel</button>
-          <button type="submit" form="availability-form" className="primary-button" disabled={saving}>
+          <button type="button" className="btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" form="availability-form" className="btn btn-primary" disabled={saving}>
             {saving ? "Saving..." : editing ? "Save changes" : "Add availability"}
           </button>
         </>
       }
     >
-      <form id="availability-form" className={styles.dialogBody} onSubmit={handleSubmit} noValidate>
-        {formError ? <div className={styles.formAlert} role="alert">{formError}</div> : null}
+      <form id="availability-form" className="modal-body" onSubmit={handleSubmit} noValidate>
+        {formError ? <div className="form-alert" role="alert">{formError}</div> : null}
 
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor="avail-day">Weekday <span className={styles.required}>*</span></label>
+        <div className="field">
+          <label htmlFor="avail-day">Weekday <span className="required">*</span></label>
           <select
             id="avail-day"
-            className={`${styles.input} ${showError("day_of_week") ? styles.inputError : ""}`}
+            aria-invalid={Boolean(showError("day_of_week"))}
             value={draft.day_of_week}
             onChange={setField("day_of_week")}
           >
@@ -69,37 +68,35 @@ export default function AvailabilityForm({ period, defaultDay = 1, existingPerio
               <option key={day.value} value={day.value}>{day.name}</option>
             ))}
           </select>
-          {showError("day_of_week") ? <p className={styles.fieldError} role="alert">{errors.day_of_week}</p> : null}
+          {showError("day_of_week") ? <p className="field-error" role="alert">{errors.day_of_week}</p> : null}
         </div>
 
-        <div className={styles.fieldRow}>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="avail-start">Start time <span className={styles.required}>*</span></label>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="avail-start">Start time <span className="required">*</span></label>
             <input
               id="avail-start"
               type="time"
-              className={`${styles.input} ${showError("start_time") ? styles.inputError : ""}`}
+              aria-invalid={Boolean(showError("start_time"))}
               value={draft.start_time}
               onChange={setField("start_time")}
-              aria-invalid={Boolean(showError("start_time"))}
-            />
+                          />
           </div>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="avail-end">End time <span className={styles.required}>*</span></label>
+          <div className="field">
+            <label htmlFor="avail-end">End time <span className="required">*</span></label>
             <input
               id="avail-end"
               type="time"
-              className={`${styles.input} ${showError("end_time") ? styles.inputError : ""}`}
+              aria-invalid={Boolean(showError("end_time"))}
               value={draft.end_time}
               onChange={setField("end_time")}
-              aria-invalid={Boolean(showError("end_time"))}
-            />
+                          />
           </div>
         </div>
-        {showError("start_time") ? <p className={styles.fieldError} role="alert">{errors.start_time}</p> : null}
-        {showError("end_time") ? <p className={styles.fieldError} role="alert">{errors.end_time}</p> : null}
+        {showError("start_time") ? <p className="field-error" role="alert">{errors.start_time}</p> : null}
+        {showError("end_time") ? <p className="field-error" role="alert">{errors.end_time}</p> : null}
 
-        <label className={styles.switchRow}>
+        <label className="check-row">
           <input
             type="checkbox"
             checked={draft.is_active}

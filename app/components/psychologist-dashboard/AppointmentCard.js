@@ -7,6 +7,7 @@ const STATUS_CLASS = {
   confirmed: styles.statusConfirmed,
   completed: styles.statusCompleted,
   cancelled: styles.statusCancelled,
+  rescheduled: styles.statusCancelled,
   missed: styles.statusMissed,
 };
 

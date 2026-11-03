@@ -19,7 +19,7 @@
   align-items: center;
   justify-content: center;
   padding: 32px 20px;
-  background: linear-gradient(135deg, #3a251d 0%, #7a4d3c 32%, #b96f43 68%, #8b9b7a 100%);
+  background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
@@ -35,11 +35,12 @@
   min-height: 600px;
   display: grid;
   grid-template-columns: 38% minmax(0, 1fr);
-  border-radius: 28px;
+  border-radius: 16px;
   background: #ffffff;
-  box-shadow:
-    0 40px 80px -30px rgba(0, 0, 0, 0.6),
-    0 14px 30px -16px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px -32px rgba(42, 32, 25, 0.35);
+  /* The sign-in card keeps its light brand look in both themes. */
+  color-scheme: light;
 }
 
 /* Left: colour panel */
@@ -48,8 +49,8 @@
   position: relative;
   z-index: 2;
   padding: 34px 34px 0;
-  border-radius: 28px 0 0 28px;
-  background: linear-gradient(170deg, #bb7347 0%, var(--caramel-deep) 100%);
+  border-radius: 16px 0 0 16px;
+  background: var(--caramel-deep);
   color: #ffffff;
 }
 
