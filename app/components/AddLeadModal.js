@@ -186,15 +186,15 @@ export default function AddLeadModal({
   const leadCode = nextLeadCode(leads);
 
   return (
-    <ModalShell labelledBy="add-lead-title" onRequestClose={requestClose} className="add-lead">
-      <button type="button" className="al-close" onClick={requestClose} aria-label="Close form">
+    <ModalShell labelledBy="add-lead-title" onRequestClose={requestClose} className="add-lead" size="lg">
+      <button type="button" className="icon-btn al-close" onClick={requestClose} aria-label="Close form">
         <Icon name="close" />
       </button>
 
       <div className="al-head">
         <div className="al-title">
           <h2 id="add-lead-title">Add Lead</h2>
-          <p>Lead Creation</p>
+          <p>Record a new enquiry. Fields marked * are required.</p>
         </div>
 
         <dl className="al-meta">
@@ -407,7 +407,7 @@ export default function AddLeadModal({
           ) : isSaving ? (
             <span className="footer-meta" role="status">Saving lead...</span>
           ) : (
-            <span className="footer-meta">Fields marked * are required.</span>
+            <span className="footer-meta">New leads start as Enquiry.</span>
           )}
           <button type="button" className="secondary-button" onClick={requestClose} disabled={isSaving}>
             Cancel

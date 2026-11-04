@@ -15,11 +15,11 @@ export default function MonthGrid({ anchor, onAnchorChange, selected, onSelect, 
     <div className="cal">
       <div className="cal-head">
         <button type="button" className="cal-nav" aria-label="Previous month" onClick={() => onAnchorChange(addMonthsClamped(anchor, -1))}>
-          <Icon name="arrowLeft" />
+          <Icon name="chevronLeft" />
         </button>
         <strong className="cal-title">{title}</strong>
         <button type="button" className="cal-nav next" aria-label="Next month" onClick={() => onAnchorChange(addMonthsClamped(anchor, 1))}>
-          <Icon name="arrowLeft" />
+          <Icon name="chevronRight" />
         </button>
       </div>
 

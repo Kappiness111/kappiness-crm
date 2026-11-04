@@ -9,7 +9,6 @@ import PsychologistForm from "../components/psychologists/PsychologistForm";
 import PsychologistShell from "../components/psychologists/PsychologistShell";
 import PsychologistTable from "../components/psychologists/PsychologistTable";
 import useCurrentUser from "../components/psychologists/useCurrentUser";
-import styles from "../components/psychologists/psychologists.module.css";
 import { canManagePsychologists, describeError, normalizePhone } from "../lib/psychologists";
 import {
   createPsychologist,
@@ -20,7 +19,7 @@ import {
 
 export default function PsychologistsPage() {
   const router = useRouter();
-  const { name: staffName, email: staffEmail, role } = useCurrentUser();
+  const { role } = useCurrentUser();
   const canManage = canManagePsychologists(role);
 
   const [psychologists, setPsychologists] = useState([]);
@@ -153,74 +152,76 @@ export default function PsychologistsPage() {
   }
 
   return (
-    <PsychologistShell crumbs={[{ label: "Psychologists" }]} staffName={staffName} staffEmail={staffEmail}>
-      <header className={styles.pageHeader}>
+    <PsychologistShell crumbs={[{ label: "Psychologists" }]}>
+      <header className="page-head">
         <div>
-          <h1 className={styles.title}>Psychologist Management</h1>
-          <p className={styles.subtitle}>Manage psychologist profiles, availability and schedules.</p>
+          <h1>Psychologists</h1>
+          <p>Profiles, account status and weekly availability.</p>
         </div>
         {canManage && (
-          <div className={styles.headerActions}>
-            <button className="primary-button" onClick={() => setFormState({ mode: "create" })}>
-              <Icon name="plus" /> Add Psychologist
+          <div className="page-actions">
+            <button type="button" className="btn btn-primary" onClick={() => setFormState({ mode: "create" })}>
+              <Icon name="plus" /> Add psychologist
             </button>
           </div>
         )}
       </header>
 
-      <section className={styles.summaryGrid} aria-label="Summary">
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>Total Psychologists</span>
-          <strong className={styles.summaryValue}>{loading || error ? "—" : total}</strong>
-        </div>
-        <div className={`${styles.summaryCard} ${styles.accent}`}>
-          <span className={styles.summaryLabel}>Active Psychologists</span>
-          <strong className={styles.summaryValue}>{loading || error ? "—" : activeCount}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>Inactive Psychologists</span>
-          <strong className={styles.summaryValue}>{loading || error ? "—" : inactiveCount}</strong>
-        </div>
+      <section className="kpis" aria-label="Summary">
+        <button type="button" className="kpi" onClick={() => setStatusFilter("All")}>
+          <span className="kpi-label">Total</span>
+          <span className="kpi-value">{loading || error ? "—" : total}</span>
+          <span className="kpi-meta">Profiles</span>
+        </button>
+        <button type="button" className="kpi" onClick={() => setStatusFilter("Active")}>
+          <span className="kpi-label">Active</span>
+          <span className="kpi-value">{loading || error ? "—" : activeCount}</span>
+          <span className="kpi-meta">Available for sessions</span>
+        </button>
+        <button type="button" className="kpi" onClick={() => setStatusFilter("Inactive")}>
+          <span className="kpi-label">Inactive</span>
+          <span className="kpi-value">{loading || error ? "—" : inactiveCount}</span>
+          <span className="kpi-meta">Kept on record</span>
+        </button>
       </section>
 
-      <section className={styles.card}>
-        <div className={styles.toolbar}>
-          <label className={styles.searchWrap}>
+      <section className="panel" aria-label="Psychologist list">
+        <div className="toolbar">
+          <label className="search">
             <Icon name="search" />
             <input
-              className={styles.searchInput}
+              type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name or phone number"
+              placeholder="Search by name or phone"
               aria-label="Search psychologists by name or phone number"
             />
           </label>
 
-          <select
-            className={styles.select}
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            aria-label="Filter by account status"
-          >
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by account status">
             <option value="All">All statuses</option>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </select>
 
           {filtersApplied && (
-            <button className={styles.clearBtn} onClick={clearFilters}>Clear filters</button>
+            <button type="button" className="link-btn" onClick={clearFilters}>
+              Clear filters
+            </button>
           )}
 
+          <span className="spacer" />
           {!loading && !error && (
-            <span className={styles.resultCount}>
+            <span className="count">
               {filtersApplied ? `${filtered.length} of ${total}` : `${total}`} psychologist{total === 1 ? "" : "s"}
             </span>
           )}
         </div>
 
         {availabilityError && !loading && !error && (
-          <div className={styles.inlineAlert} role="status">
-            Availability could not be loaded, so the summary is hidden. The rest of the list is unaffected.
+          <div className="notice" role="status" style={{ margin: "12px 14px 0" }}>
+            <Icon name="info" />
+            <span>Availability could not be loaded, so that column is hidden. The rest of the list is unaffected.</span>
           </div>
         )}
 
@@ -261,9 +262,10 @@ export default function PsychologistsPage() {
           small
           footer={
             <>
-              <button className="secondary-button" onClick={() => setDeactivateTarget(null)}>Cancel</button>
+              <button type="button" className="btn" onClick={() => setDeactivateTarget(null)}>Cancel</button>
               <button
-                className="primary-button"
+                type="button"
+                className="btn btn-danger"
                 onClick={() => {
                   const target = deactivateTarget;
                   setDeactivateTarget(null);

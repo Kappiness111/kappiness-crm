@@ -1,17 +1,23 @@
-// Maps each status to an existing badge colour class so no new CSS is needed.
-const CLASS_BY_STATUS = {
-  Enquiry: "new",
-  "Yet to Confirm": "follow-up",
-  "Will Inform": "contacted",
-  Confirmed: "converted",
+/* Lead status as a compact badge. Colour carries meaning only:
+   neutral = new enquiry, warning = waiting on the client, info = client will get back,
+   success = confirmed, danger = lost. The text is always shown, so colour is never the only signal. */
+
+export const STATUS_TONE = {
+  Enquiry: "neutral",
+  "Yet to Confirm": "warning",
+  "Will Inform": "info",
+  Confirmed: "success",
+  Lost: "danger",
 };
 
-export default function StatusBadge({ status }) {
-  const statusClass = CLASS_BY_STATUS[status] || String(status || "").toLowerCase().replaceAll(" ", "-");
+export function statusTone(status) {
+  return STATUS_TONE[status] || "neutral";
+}
 
+export default function StatusBadge({ status }) {
   return (
-    <span className={`status-badge status-${statusClass}`}>
-      <span className="status-dot" />
+    <span className={`status-badge tone-${statusTone(status)}`}>
+      <span className="status-dot" aria-hidden="true" />
       {status}
     </span>
   );
