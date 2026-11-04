@@ -70,12 +70,12 @@ export default function PsychologistCalendar({
             {effectiveView === "month" && <CalendarMonthView {...common} />}
 
             <div className={styles.gridLegend} aria-label="Legend">
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "#f6ede0", borderLeft: "3px solid #59300b" }} /> Session</span>
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "#fbf0dc", borderLeft: "3px solid #d99536" }} /> Follow-up</span>
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "#e9efe3", borderLeft: "3px solid #577346" }} /> Completed</span>
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "#f3efe9", borderLeft: "3px solid #b4a89b" }} /> Cancelled</span>
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "#fff", border: "1px dashed #a0402f" }} /> Missed</span>
-              <span className={styles.legendItem}><span className={styles.swatch} style={{ background: "rgba(87,115,70,0.22)" }} /> Recurring availability</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swSession}`} /> Session</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swFollow}`} /> Follow-up</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swDone}`} /> Completed</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swCancelled}`} /> Cancelled</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swMissed}`} /> Missed</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swAvailable}`} /> Recurring availability</span>
             </div>
           </>
         )}

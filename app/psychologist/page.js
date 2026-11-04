@@ -4,42 +4,36 @@ import { useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "../../utils/supabase/client";
 import AppointmentDetailsPanel from "../components/psychologist-dashboard/AppointmentDetailsPanel";
-import AvailabilitySummary from "../components/psychologist-dashboard/AvailabilitySummary";
-import DashboardOverview from "../components/psychologist-dashboard/DashboardOverview";
 import PsychologistCalendar from "../components/psychologist-dashboard/PsychologistCalendar";
-import PsychologistSidebar from "../components/psychologist-dashboard/PsychologistSidebar";
+import PsychologistOverview from "../components/psychologist-dashboard/PsychologistOverview";
 import styles from "../components/psychologist-dashboard/dashboard.module.css";
 import useIsNarrow from "../components/psychologist-dashboard/useIsNarrow";
+import AppShell from "../components/AppShell";
 import Icon from "../components/Icon";
-import {
-  addDays,
-  addMonthsClamped,
-  getVisibleRange,
-  startOfDay,
-} from "../lib/calendar";
+import Toast from "../components/Toast";
+import ClientDetails from "../components/clients/ClientDetails";
+import ClientList from "../components/clients/ClientList";
+import AvailabilityManager from "../components/scheduling/AvailabilityManager";
+import useAppointmentWorkflow from "../components/scheduling/useAppointmentWorkflow";
+import RecommendationsPanel from "../components/sessions/RecommendationsPanel";
+import SessionsPanel from "../components/sessions/SessionsPanel";
+import { PSYCHOLOGIST_NAV } from "../lib/navigation";
+import { addDays, addMonthsClamped, getVisibleRange, startOfDay } from "../lib/calendar";
 import { describeError } from "../lib/psychologists";
 import { getPsychologist, getPsychologistByAuthUser, listAvailability } from "../lib/psychologistsApi";
-import {
-  CAPABILITIES,
-  fetchAppointments,
-  recommendFollowUp,
-  updateSessionStatus,
-} from "../lib/psychologistAppointments";
+import { fetchAppointments, recommendFollowUp, updateSessionStatus } from "../lib/psychologistAppointments";
+import { listClients } from "../lib/clientsApi";
 import { getStaffName } from "../lib/staff";
 
 // Preview mode exists only in `npm run dev` (never in a production build). It lets staff or admins review
 // this screen without being a psychologist. It does not bypass any permission: data still loads through
-// the signed-in user's normal access rules.
+// the signed-in user's normal access rules, so writes are refused by the database.
 //   /psychologist?preview=1        empty preview (no psychologist data)
 //   /psychologist?as=<profile id>  preview as an existing psychologist profile the user is allowed to read
 const PREVIEW_ENABLED = process.env.NODE_ENV !== "production";
 
-const SECTION_TITLES = {
-  dashboard: "Dashboard",
-  calendar: "My Calendar",
-  availability: "My Availability",
-  profile: "Profile",
-};
+const SECTION_TITLES = Object.fromEntries(PSYCHOLOGIST_NAV.map((item) => [item.id, item.label]));
+const SECTIONS = PSYCHOLOGIST_NAV.map((item) => item.id);
 
 function PsychologistDashboard() {
   const router = useRouter();
@@ -47,13 +41,13 @@ function PsychologistDashboard() {
 
   const [now, setNow] = useState(() => new Date());
   const [section, setSection] = useState("dashboard");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [clientId, setClientId] = useState(null); // client profile open in "My clients"
   const [loggingOut, setLoggingOut] = useState(false);
 
   // auth + profile: { status: "loading" | "ready" | "no-profile" | "error", user, psychologist, message }
   const [auth, setAuth] = useState({ status: "loading", user: null, psychologist: null, message: "", preview: false });
 
-  // availability
+  // availability (calendar shading)
   const [periodsState, setPeriodsState] = useState({ key: "", items: [], error: "" });
   const [periodsTick, setPeriodsTick] = useState(0);
 
@@ -70,6 +64,7 @@ function PsychologistDashboard() {
 
   const psychologist = auth.psychologist;
   const psychologistId = psychologist ? psychologist.id : null;
+  const notify = useCallback((message, tone = "success") => setToast({ message, tone }), []);
 
   // Keeps "today" and the current-time line fresh.
   useEffect(() => {
@@ -82,6 +77,16 @@ function PsychologistDashboard() {
     const timer = setTimeout(() => setToast(null), toast.tone === "error" ? 6000 : 3500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  // Deep links: /psychologist?section=clients&client=<id>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("section");
+    // One-time sync from the address bar after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (fromUrl && SECTIONS.includes(fromUrl)) setSection(fromUrl);
+    if (params.get("client")) setClientId(params.get("client"));
+  }, []);
 
   // Identify the psychologist from the signed-in user (existing auth_user_id mapping).
   useEffect(() => {
@@ -135,7 +140,7 @@ function PsychologistDashboard() {
     };
   }, [router]);
 
-  // Recurring availability from the existing psychologist_availability table.
+  // Recurring availability (calendar shading).
   const periodsKey = psychologistId ? `${psychologistId}|${periodsTick}` : "";
   useEffect(() => {
     if (!psychologistId) return undefined;
@@ -157,20 +162,14 @@ function PsychologistDashboard() {
 
   const periodsLoading = Boolean(psychologistId) && periodsState.key !== periodsKey;
 
-  // Appointments for what the calendar shows, plus the next 30 days for the overview numbers.
+  // Appointments for what the calendar shows.
   const effectiveView = narrow && view === "week" ? "day" : view;
   const fetchRange = useMemo(() => {
     const visible = getVisibleRange(narrow && effectiveView === "day" ? "week" : effectiveView, anchor);
-    const today = startOfDay(now);
-    const start = visible.start < today ? visible.start : today;
-    const horizon = addDays(today, 30);
-    const end = visible.end > horizon ? visible.end : horizon;
-    return { start, end };
-  }, [narrow, effectiveView, anchor, now]);
+    return { start: visible.start, end: visible.end };
+  }, [narrow, effectiveView, anchor]);
 
-  const apptKey = psychologistId
-    ? `${psychologistId}|${+fetchRange.start}|${+fetchRange.end}|${apptTick}`
-    : "";
+  const apptKey = psychologistId ? `${psychologistId}|${+fetchRange.start}|${+fetchRange.end}|${apptTick}` : "";
 
   useEffect(() => {
     if (!psychologistId) return undefined;
@@ -182,12 +181,7 @@ function PsychologistDashboard() {
       .catch((error) => {
         console.error("Failed to load appointments:", error);
         if (!cancelled) {
-          setApptState({
-            key: apptKey,
-            items: [],
-            supported: true,
-            error: describeError(error, "Could not load appointments. Please try again."),
-          });
+          setApptState({ key: apptKey, items: [], supported: true, error: describeError(error, "Could not load appointments. Please try again.") });
         }
       });
     return () => {
@@ -196,6 +190,13 @@ function PsychologistDashboard() {
   }, [psychologistId, apptKey, fetchRange]);
 
   const apptLoading = Boolean(psychologistId) && apptState.key !== apptKey;
+
+  const viewer = useMemo(
+    () => ({ isStaff: false, isAdmin: false, ownPsychologist: psychologist && psychologist.id ? psychologist : null }),
+    [psychologist]
+  );
+  const refreshAppointments = useCallback(() => setApptTick((tick) => tick + 1), []);
+  const workflow = useAppointmentWorkflow({ viewer, onChanged: refreshAppointments, notify });
 
   /* ----- calendar navigation ----- */
 
@@ -225,29 +226,41 @@ function PsychologistDashboard() {
     setAnchor(selected);
   }
 
-  /* ----- appointment actions (all through the adapter) ----- */
+  /* ----- appointment actions ----- */
 
-  async function handleStatus(appointment, status) {
+  async function handleStatus(appointment, status, extra = {}) {
     setActionBusy(true);
-    const result = await updateSessionStatus(appointment.id, status);
+    const result = await updateSessionStatus(appointment.id, status, extra);
     setActionBusy(false);
     if (result.ok) {
-      setToast({ message: "Session updated", tone: "success" });
+      notify(status === "cancelled" ? "Appointment cancelled. The slot is free again." : `Marked ${status}`);
       setOpenAppointment(null);
-      setApptTick((tick) => tick + 1);
+      refreshAppointments();
     } else {
-      setToast({ message: result.message, tone: "error" });
+      notify(result.message, "error");
     }
   }
 
   async function handleRecommend(values) {
     const result = await recommendFollowUp(values);
     if (result.ok) {
-      setToast({ message: "Follow-up recommended", tone: "success" });
+      notify("Follow-up recommended. Staff will track it.");
       setOpenAppointment(null);
-      setApptTick((tick) => tick + 1);
     }
     return result;
+  }
+
+  async function bookFromCalendar() {
+    try {
+      const clients = await listClients({ psychologistId });
+      if (clients.length === 0) {
+        notify("You have no assigned clients yet. Staff assign clients when a lead is confirmed.", "error");
+        return;
+      }
+      workflow.openBooking(null, null, clients.filter((item) => item.is_active));
+    } catch (error) {
+      notify(describeError(error, "Could not load your clients."), "error");
+    }
   }
 
   async function handleLogout() {
@@ -261,11 +274,19 @@ function PsychologistDashboard() {
     router.refresh();
   }
 
-  const navigate = useCallback((id) => {
+  const navigate = useCallback((id, options = {}) => {
     setSection(id);
-    setMenuOpen(false);
+    setClientId(options.clientId || null);
+    setOpenAppointment(null);
+    const params = new URLSearchParams();
+    if (id !== "dashboard") params.set("section", id);
+    if (options.clientId) params.set("client", options.clientId);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `/psychologist?${query}` : "/psychologist");
     window.scrollTo({ top: 0 });
   }, []);
+
+  const openClient = useCallback((id) => navigate("clients", { clientId: id }), [navigate]);
 
   /* ----- states before the dashboard ----- */
 
@@ -293,14 +314,21 @@ function PsychologistDashboard() {
           </p>
           {missing && PREVIEW_ENABLED && (
             <p>
-              Developer preview: add <strong>?preview=1</strong> to the address to review this dashboard without a
-              psychologist account.
+              Developer preview: add <strong>?preview=1</strong> to the address to review this dashboard without a psychologist account.
             </p>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-            {!missing && <button className={styles.btn} onClick={() => window.location.reload()}>Try again</button>}
-            <button className={styles.btn} onClick={() => router.push("/")}>Go to CRM dashboard</button>
-            <button className={styles.btn} onClick={handleLogout}>Logout</button>
+            {!missing && (
+              <button type="button" className="btn" onClick={() => window.location.reload()}>
+                Try again
+              </button>
+            )}
+            <button type="button" className="btn" onClick={() => router.push("/")}>
+              Go to CRM dashboard
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleLogout} disabled={loggingOut}>
+              {loggingOut ? "Signing out…" : "Log out"}
+            </button>
           </div>
         </div>
       </div>
@@ -308,165 +336,194 @@ function PsychologistDashboard() {
   }
 
   const name = psychologist.name || getStaffName(auth.user);
-  const calendarProps = {
-    view,
-    anchor,
-    selected,
-    now,
-    narrow,
-    appointments: apptState.items,
-    supported: apptState.supported,
-    loading: apptLoading,
-    error: apptState.error,
-    periods: periodsState.items,
-    periodsLoading,
-    periodsError: periodsState.error,
-    onView: changeView,
-    onPrev: () => shift(-1),
-    onNext: () => shift(1),
-    onToday: goToday,
-    onSelectDate: selectDate,
-    onSelectAppointment: setOpenAppointment,
-    onRetry: () => setApptTick((tick) => tick + 1),
-    onRetryPeriods: () => setPeriodsTick((tick) => tick + 1),
-  };
-
-  const notConnected = !apptLoading && !apptState.error && !apptState.supported;
+  const hasProfile = Boolean(psychologistId);
+  const crumbs = [
+    { label: "My workspace", onClick: section === "dashboard" ? undefined : () => navigate("dashboard") },
+    { label: SECTION_TITLES[section], onClick: section === "clients" && clientId ? () => navigate("clients") : undefined },
+    ...(section === "clients" && clientId ? [{ label: "Client profile" }] : []),
+  ];
 
   return (
-    <main className={`crm-shell ${styles.scope}`}>
-      <PsychologistSidebar
-        active={section}
-        name={name}
-        open={menuOpen}
-        onNavigate={navigate}
-        onLogout={handleLogout}
-        loggingOut={loggingOut}
-        onClose={() => setMenuOpen(false)}
-      />
-
-      <section className="main-panel">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button className="mobile-menu-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation">
-              <Icon name="menu" />
-            </button>
-            <span>Psychologist</span>
-            <span className="breadcrumb-divider">/</span>
-            <strong>{SECTION_TITLES[section]}</strong>
-          </div>
-        </header>
-
-        <div className={styles.content}>
-          {auth.preview && (
-            <div className={styles.notice} role="status">
-              <span className={styles.noticeIcon}><Icon name="info" /></span>
-              <div>
-                <strong>Preview mode (development only)</strong>
-                You are reviewing this dashboard as {psychologist.id ? psychologist.name : "an empty profile"}, not as a
-                psychologist. Nothing here is saved, and it is not available in the live site.
-              </div>
+    <AppShell
+      nav={PSYCHOLOGIST_NAV}
+      activeId={section}
+      onNavigate={(id) => navigate(id)}
+      workspaceLabel="Psychologist"
+      crumbs={crumbs}
+      user={{ name, email: auth.user.email || "", roleLabel: "Psychologist" }}
+    >
+      <div className={styles.scope} style={{ display: "contents" }}>
+        {auth.preview && (
+          <div className="notice" role="status">
+            <Icon name="info" />
+            <div>
+              <strong>Preview mode (development only)</strong>
+              You are reviewing this dashboard as {psychologist.id ? psychologist.name : "an empty profile"}, not as a psychologist. The database
+              will refuse any change.
             </div>
-          )}
+          </div>
+        )}
 
-          {section === "dashboard" && (
-            <DashboardOverview
-              name={name}
+        {section === "dashboard" && hasProfile && (
+          <PsychologistOverview psychologistId={psychologistId} name={name} now={now} onNavigate={(id) => navigate(id)} onOpenClient={openClient} />
+        )}
+
+        {section === "clients" && hasProfile && !clientId && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>My clients</h1>
+                <p>Clients assigned to you. Open one for their history, sessions and follow-ups.</p>
+              </div>
+            </header>
+            <ClientList psychologistId={psychologistId} showPsychologist={false} onOpen={(client) => openClient(client.id)} />
+          </>
+        )}
+
+        {section === "clients" && hasProfile && clientId && (
+          <ClientDetails key={clientId} clientId={clientId} viewer={viewer} psychologists={[psychologist]} notify={notify} onBack={() => navigate("clients")} />
+        )}
+
+        {section === "calendar" && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>Appointments</h1>
+                <p>Your appointments by day, week or month, with your weekly availability shaded.</p>
+              </div>
+              {hasProfile && (
+                <div className="page-actions">
+                  <button type="button" className="btn btn-primary" onClick={bookFromCalendar}>
+                    <Icon name="plus" /> Book appointment
+                  </button>
+                </div>
+              )}
+            </header>
+
+            {!apptLoading && !apptState.error && !apptState.supported && (
+              <div className="notice" role="status">
+                <Icon name="info" />
+                <div>
+                  <strong>Appointments are not set up in the database yet</strong>
+                  The calendar shows your weekly availability. Appointments appear once the clinic applies the scheduling migration.
+                </div>
+              </div>
+            )}
+
+            <PsychologistCalendar
+              view={view}
+              anchor={anchor}
+              selected={selected}
               now={now}
+              narrow={narrow}
               appointments={apptState.items}
-              supported={apptState.supported && !apptState.error}
+              supported={apptState.supported}
               loading={apptLoading}
+              error={apptState.error}
+              periods={periodsState.items}
+              periodsLoading={periodsLoading}
+              periodsError={periodsState.error}
+              onView={changeView}
+              onPrev={() => shift(-1)}
+              onNext={() => shift(1)}
+              onToday={goToday}
+              onSelectDate={selectDate}
+              onSelectAppointment={setOpenAppointment}
+              onRetry={refreshAppointments}
+              onRetryPeriods={() => setPeriodsTick((tick) => tick + 1)}
             />
-          )}
+          </>
+        )}
 
-          {(section === "dashboard" || section === "calendar") && (
-            <>
-              {section === "calendar" && (
-                <div className={styles.pageHead}>
-                  <div>
-                    <h1 className={styles.pageTitle}>My Calendar</h1>
-                    <p className={styles.pageSub}>Your sessions by day, week or month.</p>
-                  </div>
-                </div>
-              )}
-
-              {notConnected && (
-                <div className={styles.notice} role="status">
-                  <span className={styles.noticeIcon}><Icon name="info" /></span>
-                  <div>
-                    <strong>Appointments are not connected yet</strong>
-                    The calendar shows your recurring availability as shaded bands. Sessions, today&apos;s count and
-                    follow-ups will appear once the backend provides appointment data.
-                  </div>
-                </div>
-              )}
-
-              <PsychologistCalendar {...calendarProps} />
-            </>
-          )}
-
-          {section === "availability" && (
-            <>
-              <div className={styles.pageHead}>
-                <div>
-                  <h1 className={styles.pageTitle}>My Availability</h1>
-                  <p className={styles.pageSub}>Your recurring weekly working hours.</p>
-                </div>
+        {section === "sessions" && hasProfile && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>Sessions</h1>
+                <p>Record attendance after each appointment, add the session outcome and notes, and recommend follow-ups.</p>
               </div>
-              <section className={styles.panel}>
-                <AvailabilitySummary
-                  periods={periodsState.items}
-                  loading={periodsLoading}
-                  error={periodsState.error}
-                  onRetry={() => setPeriodsTick((tick) => tick + 1)}
-                />
-              </section>
-            </>
-          )}
+            </header>
+            <SessionsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
+          </>
+        )}
 
-          {section === "profile" && (
-            <>
-              <div className={styles.pageHead}>
-                <div>
-                  <h1 className={styles.pageTitle}>Profile</h1>
-                  <p className={styles.pageSub}>Your details as held by the clinic. Contact an administrator to change them.</p>
-                </div>
+        {section === "availability" && hasProfile && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>My availability</h1>
+                <p>Your weekly working periods (several per day, with breaks) and dates you are unavailable.</p>
               </div>
-              <section className={styles.panel}>
-                <dl className={styles.detailGrid}>
-                  <div className={styles.detail}><dt>Full name</dt><dd>{psychologist.name || "—"}</dd></div>
-                  <div className={styles.detail}><dt>Phone number</dt><dd>{psychologist.phone || "—"}</dd></div>
-                  <div className={styles.detail}><dt>Account status</dt><dd>{psychologist.active ? "Active" : "Inactive"}</dd></div>
-                  <div className={styles.detail}><dt>Login email</dt><dd>{auth.user.email || "—"}</dd></div>
-                </dl>
-              </section>
-            </>
-          )}
-        </div>
+            </header>
+            <AvailabilityManager psychologistId={psychologistId} notify={notify} onChanged={() => setPeriodsTick((tick) => tick + 1)} />
+          </>
+        )}
 
-        <footer className="app-footer">
-          <span>© 2026 Kappiness CRM</span>
-          <span>Nourishing Minds, Pouring Happiness.</span>
-        </footer>
-      </section>
+        {section === "recommendations" && hasProfile && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>Follow-up recommendations</h1>
+                <p>Your recommendations after sessions. Staff book them through the normal appointment process.</p>
+              </div>
+            </header>
+            <RecommendationsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
+          </>
+        )}
+
+        {section !== "profile" && section !== "calendar" && !hasProfile && (
+          <div className="notice" role="status">
+            <Icon name="info" />
+            <div>
+              <strong>Empty preview</strong>
+              Open the preview with ?as=&lt;psychologist id&gt; to see a profile&apos;s data.
+            </div>
+          </div>
+        )}
+
+        {section === "profile" && (
+          <>
+            <header className="page-head">
+              <div>
+                <h1>Profile</h1>
+                <p>Your details as held by the clinic. Contact an administrator to change them. Appearance is in Profile settings.</p>
+              </div>
+            </header>
+            <section className="panel panel-pad">
+              <dl className="kv">
+                <dt>Full name</dt>
+                <dd>{psychologist.name || "—"}</dd>
+                <dt>Phone number</dt>
+                <dd>{psychologist.phone || "—"}</dd>
+                <dt>Account status</dt>
+                <dd>{psychologist.active ? "Active" : "Inactive"}</dd>
+                <dt>Login email</dt>
+                <dd>{auth.user.email || "—"}</dd>
+              </dl>
+            </section>
+          </>
+        )}
+      </div>
 
       {openAppointment && (
         <AppointmentDetailsPanel
           appointment={openAppointment}
-          capabilities={CAPABILITIES}
+          now={now}
           busy={actionBusy}
           onClose={() => setOpenAppointment(null)}
           onStatus={handleStatus}
           onRecommend={handleRecommend}
+          onOpenClient={openClient}
+          onReschedule={(item) => {
+            setOpenAppointment(null);
+            workflow.openReschedule(item.raw);
+          }}
         />
       )}
 
-      {toast && (
-        <div className={`${styles.toast} ${toast.tone === "error" ? styles.toastError : ""}`} role={toast.tone === "error" ? "alert" : "status"}>
-          {toast.message}
-        </div>
-      )}
-    </main>
+      {workflow.dialogs}
+      <Toast toast={toast} />
+    </AppShell>
   );
 }
 

@@ -2,9 +2,14 @@
 
 import Icon from "../Icon";
 import { summarizeAvailability } from "../../lib/psychologists";
-import styles from "./psychologists.module.css";
 
 const SKELETON_ROWS = [0, 1, 2, 3];
+const COLUMNS = 5;
+
+function initials(name) {
+  const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
+  return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
 
 /* The psychologist listing. All actions are callbacks owned by the page. */
 export default function PsychologistTable({
@@ -25,58 +30,66 @@ export default function PsychologistTable({
   onToggleActive,
 }) {
   return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
+    <div className="table-wrap">
+      <table className="table sticky-first">
         <thead>
           <tr>
-            <th>Psychologist</th>
-            <th>Phone number</th>
-            <th>Account status</th>
-            <th>Availability</th>
-            <th>Actions</th>
+            <th scope="col">Psychologist</th>
+            <th scope="col">Phone</th>
+            <th scope="col">Status</th>
+            <th scope="col">Weekly availability</th>
+            <th scope="col" className="right">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
 
         <tbody>
           {loading &&
             SKELETON_ROWS.map((item) => (
-              <tr key={item} className={styles.skeletonRow} aria-hidden="true">
-                {[0, 1, 2, 3, 4].map((cell) => (
+              <tr key={item} aria-hidden="true">
+                {Array.from({ length: COLUMNS }, (_, cell) => (
                   <td key={cell}>
-                    <div className={styles.skeleton} style={{ width: cell === 0 ? "70%" : "55%" }} />
+                    <div className="skeleton" style={{ width: cell === 0 ? 160 : 80 }} />
                   </td>
                 ))}
               </tr>
             ))}
 
           {!loading && error && (
-            <tr>
-              <td colSpan={5} className={styles.stateCell}>
-                <div className={`${styles.stateBox} ${styles.stateError}`} role="alert">
-                  <span className={styles.stateIcon}><Icon name="info" /></span>
+            <tr className="table-state">
+              <td colSpan={COLUMNS}>
+                <div className="state error" role="alert">
+                  <Icon name="alert" />
                   <strong>Could not load psychologists</strong>
-                  <p>{error}</p>
-                  <button className="secondary-button" onClick={onRetry}>Try again</button>
+                  <span>{error}</span>
+                  <button type="button" className="btn btn-sm" onClick={onRetry}>
+                    Try again
+                  </button>
                 </div>
               </td>
             </tr>
           )}
 
           {!loading && !error && rows.length === 0 && (
-            <tr>
-              <td colSpan={5} className={styles.stateCell}>
-                <div className={styles.stateBox}>
-                  <span className={styles.stateIcon}><Icon name={hasAnyRecords ? "search" : "heart"} /></span>
+            <tr className="table-state">
+              <td colSpan={COLUMNS}>
+                <div className="state">
+                  <Icon name={hasAnyRecords ? "search" : "userCheck"} />
                   <strong>{hasAnyRecords ? "No psychologists match your search" : "No psychologists yet"}</strong>
-                  <p>
+                  <span>
                     {hasAnyRecords
                       ? "Try a different name or phone number, or change the status filter."
                       : "Psychologist profiles you can see will appear here."}
-                  </p>
+                  </span>
                   {hasAnyRecords ? (
-                    <button className="secondary-button" onClick={onClearFilters}>Clear filters</button>
+                    <button type="button" className="btn btn-sm" onClick={onClearFilters}>
+                      Clear filters
+                    </button>
                   ) : canManage ? (
-                    <button className="primary-button" onClick={onAdd}><Icon name="plus" /> Add psychologist</button>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={onAdd}>
+                      <Icon name="plus" /> Add psychologist
+                    </button>
                   ) : null}
                 </div>
               </td>
@@ -91,51 +104,58 @@ export default function PsychologistTable({
 
               return (
                 <tr key={psychologist.id}>
-                  <td data-label="Psychologist">
-                    <div className={styles.nameCell}>
-                      <span className={styles.avatar} aria-hidden="true">
-                        {(psychologist.name || "?").charAt(0).toUpperCase()}
+                  <td>
+                    <button type="button" className="link-btn quiet" onClick={() => onView(psychologist)}>
+                      <span className="cell-person">
+                        <span className="avatar neutral" aria-hidden="true">
+                          {initials(psychologist.name)}
+                        </span>
+                        <strong>{psychologist.name || "Unnamed psychologist"}</strong>
                       </span>
-                      <span className={styles.nameText}>
-                        <button className={styles.nameLink} onClick={() => onView(psychologist)}>
-                          {psychologist.name || "Unnamed psychologist"}
-                        </button>
-                      </span>
-                    </div>
+                    </button>
                   </td>
 
-                  <td data-label="Phone number">{psychologist.phone || <span className={styles.muted}>—</span>}</td>
+                  <td className="num">{psychologist.phone || <span className="muted-cell">—</span>}</td>
 
-                  <td data-label="Account status">
-                    <span className={`${styles.badge} ${psychologist.active ? styles.badgeActive : styles.badgeInactive}`}>
+                  <td>
+                    <span className={`badge ${psychologist.active ? "tone-success" : ""}`}>
+                      <span className="badge-dot" aria-hidden="true" />
                       {psychologist.active ? "Active" : "Inactive"}
                     </span>
                   </td>
 
-                  <td data-label="Availability">
+                  <td>
                     {availabilityUnavailable ? (
-                      <span className={styles.muted}>—</span>
+                      <span className="muted-cell">—</span>
                     ) : (
                       <span>
-                        <span className={styles.availLabel}>{summary.label}</span>
-                        {summary.detail ? <span className={styles.availDetail}>{summary.detail}</span> : null}
+                        {summary.label}
+                        {summary.detail ? <span className="cell-sub"> · {summary.detail}</span> : null}
                       </span>
                     )}
                   </td>
 
-                  <td data-label="Actions">
-                    <div className={styles.actions}>
-                      <button className={styles.linkBtn} onClick={() => onView(psychologist)}>View Profile</button>
+                  <td>
+                    <div className="actions">
+                      <button type="button" className="mini-button" onClick={() => onView(psychologist)}>
+                        View
+                      </button>
                       {canManage && (
                         <>
-                          <button className={styles.linkBtn} onClick={() => onEdit(psychologist)}>Edit Profile</button>
-                          <button className={styles.linkBtn} onClick={() => onAvailability(psychologist)}>Manage Availability</button>
+                          <button type="button" className="mini-button" onClick={() => onEdit(psychologist)}>
+                            Edit
+                          </button>
+                          <button type="button" className="mini-button" onClick={() => onAvailability(psychologist)}>
+                            Availability
+                          </button>
                           <button
-                            className={`${styles.linkBtn} ${psychologist.active ? styles.linkBtnDanger : ""}`}
+                            type="button"
+                            className={`link-btn ${psychologist.active ? "danger" : ""}`}
                             disabled={busy}
                             onClick={() => onToggleActive(psychologist)}
+                            style={{ marginLeft: 6 }}
                           >
-                            {busy ? "Saving..." : psychologist.active ? "Deactivate" : "Activate"}
+                            {busy ? "Saving…" : psychologist.active ? "Deactivate" : "Activate"}
                           </button>
                         </>
                       )}

@@ -8,9 +8,9 @@ import Icon from "../../components/Icon";
 import Notice from "../../components/psychologists/Notice";
 import PsychologistForm from "../../components/psychologists/PsychologistForm";
 import PsychologistProfile from "../../components/psychologists/PsychologistProfile";
+import BlockedPeriods from "../../components/scheduling/BlockedPeriods";
 import PsychologistShell from "../../components/psychologists/PsychologistShell";
 import useCurrentUser from "../../components/psychologists/useCurrentUser";
-import styles from "../../components/psychologists/psychologists.module.css";
 import { canManagePsychologists, describeError } from "../../lib/psychologists";
 import {
   createAvailability,
@@ -25,7 +25,7 @@ function PsychologistProfileView() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  const { name: staffName, email: staffEmail, role } = useCurrentUser();
+  const { role } = useCurrentUser();
   const canManage = canManagePsychologists(role);
 
   const [psychologist, setPsychologist] = useState(null);
@@ -189,39 +189,43 @@ function PsychologistProfileView() {
   ];
 
   return (
-    <PsychologistShell crumbs={crumbs} staffName={staffName} staffEmail={staffEmail}>
+    <PsychologistShell crumbs={crumbs}>
       {loading && (
-        <section className={`${styles.card} ${styles.profileHeader}`} aria-busy="true">
-          <span className={`${styles.avatar} ${styles.avatarLarge}`} />
-          <div className={styles.profileHeading}>
-            <div className={styles.skeleton} style={{ width: "40%", height: 18, marginBottom: 12 }} />
-            <div className={styles.skeleton} style={{ width: 80 }} />
+        <section className="page-head" aria-busy="true" aria-label="Loading profile">
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span className="avatar lg" aria-hidden="true" />
+            <div>
+              <div className="skeleton" style={{ width: 220, height: 18, marginBottom: 10 }} />
+              <div className="skeleton" style={{ width: 120 }} />
+            </div>
           </div>
         </section>
       )}
 
       {!loading && error && (
-        <section className={styles.card}>
-          <div className={`${styles.stateBox} ${styles.stateError}`} role="alert">
-            <span className={styles.stateIcon}><Icon name="info" /></span>
+        <div className="panel">
+          <div className="state error" role="alert">
+            <Icon name="alert" />
             <strong>Could not load this profile</strong>
-            <p>{error}</p>
-            <button className="secondary-button" onClick={retryProfile}>Try again</button>
+            <span>{error}</span>
+            <button type="button" className="btn btn-sm" onClick={retryProfile}>
+              Try again
+            </button>
           </div>
-        </section>
+        </div>
       )}
 
       {!loading && !error && !psychologist && (
-        <section className={styles.card}>
-          <div className={styles.stateBox}>
-            <span className={styles.stateIcon}><Icon name="search" /></span>
+        <div className="panel">
+          <div className="state">
+            <Icon name="search" />
             <strong>Psychologist not found</strong>
-            <p>This profile does not exist, or you do not have access to it.</p>
-            <button className="secondary-button" onClick={() => router.push("/psychologists")}>
+            <span>This profile does not exist, or you do not have access to it.</span>
+            <button type="button" className="btn btn-sm" onClick={() => router.push("/psychologists")}>
               <Icon name="arrowLeft" /> Back to psychologists
             </button>
           </div>
-        </section>
+        </div>
       )}
 
       {!loading && !error && psychologist && (
@@ -247,6 +251,8 @@ function PsychologistProfileView() {
             onEdit={(period) => setAvailabilityForm({ period })}
             onToggle={togglePeriod}
           />
+
+          <BlockedPeriods psychologistId={psychologist.id} canManage={canManage} notify={flash} />
         </>
       )}
 

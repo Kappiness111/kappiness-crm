@@ -1,11 +1,102 @@
 /* Shared constants and helpers for the Kappiness CRM lead screens. */
 
-export const STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform", "Confirmed"];
-// No status closes a lead any more, so follow ups can always be scheduled.
-export const CLOSED_STATUSES = [];
+// These values must match the leads_status_check constraint and the update_lead_with_history RPC
+// (supabase/migrations/202611030002_lead_status_lost_and_psychologist.sql).
+export const STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform", "Confirmed", "Lost"];
+// A lost lead stays in the CRM for reporting, but drops out of follow-up reminders.
+export const CLOSED_STATUSES = ["Lost"];
 export const DEFAULT_STATUS = "Enquiry";
 // Leads in these statuses have no confirmed appointment yet.
 export const UNCONFIRMED_STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform"];
+export const CONFIRMED_STATUS = "Confirmed";
+export const LOST_STATUS = "Lost";
+
+// Allowed lead status changes. Confirmed and Lost are final. The database trigger enforce_lead_workflow
+// (migration 202611040001) applies the same table, so this only keeps the menus honest.
+export const STATUS_TRANSITIONS = {
+  Enquiry: ["Yet to Confirm", "Lost"],
+  "Yet to Confirm": ["Enquiry", "Will Inform", "Lost"],
+  "Will Inform": ["Yet to Confirm", "Confirmed", "Lost"],
+  Confirmed: [],
+  Lost: [],
+};
+
+// The current status plus the statuses it may move to, in pipeline order.
+export function statusOptions(current) {
+  const next = STATUS_TRANSITIONS[current] || [];
+  return STATUSES.filter((status) => status === current || next.includes(status));
+}
+
+export function canMoveStatus(from, to) {
+  return from === to || (STATUS_TRANSITIONS[from] || []).includes(to);
+}
+
+/* ----- psychologist assignment ----- */
+
+// leads.assigned_psychologist_id -> psychologists.id (added by the migration above).
+export const PSYCHOLOGIST_COLUMN = "assigned_psychologist_id";
+export const CONFIRM_NEEDS_PSYCHOLOGIST = "Assign a psychologist before setting this lead to Confirmed.";
+
+/* ----- lost reason (stored in the existing leads.not_converted_reason column) ----- */
+
+export const LOST_REASONS = [
+  "Not interested",
+  "Budget constraints",
+  "No response",
+  "Chose another service provider",
+  "Not suitable for the service",
+  "Other",
+];
+export const LOST_REASON_OTHER = "Other";
+export const LOST_DETAIL_LIMIT = 200;
+
+// "Other" is saved as "Other: <explanation>" so the explanation is kept with the reason.
+export function buildLostReason(choice, detail = "") {
+  if (choice === LOST_REASON_OTHER) return `${LOST_REASON_OTHER}: ${detail.trim()}`;
+  return choice || "";
+}
+
+// Splits a saved reason back into the dropdown choice and the free-text explanation.
+export function parseLostReason(value) {
+  const text = (value || "").trim();
+  if (!text) return { choice: "", detail: "" };
+  if (LOST_REASONS.includes(text) && text !== LOST_REASON_OTHER) return { choice: text, detail: "" };
+  const other = /^Other:\s*(.*)$/s.exec(text);
+  // Anything else (older free-text reasons) is shown as an "Other" explanation so it is not lost.
+  return { choice: LOST_REASON_OTHER, detail: other ? other[1] : text };
+}
+
+// Returns { choice?, detail? } error messages for a Lost reason.
+export function validateLostReason(choice, detail = "") {
+  const errors = {};
+  if (!LOST_REASONS.includes(choice)) errors.choice = "Choose why this lead was lost.";
+  else if (choice === LOST_REASON_OTHER && !detail.trim()) errors.detail = "Add a short explanation for Other.";
+  if (detail.length > LOST_DETAIL_LIMIT) errors.detail = `Keep the explanation under ${LOST_DETAIL_LIMIT} characters.`;
+  return errors;
+}
+
+/* ----- Supabase errors on lead saves ----- */
+
+// Short, specific messages for the lead form and drawer. Full details still go to the console.
+export function describeLeadError(error, fallback = "Could not save your changes. Please try again.") {
+  const code = error && error.code;
+  const text = `${(error && error.message) || ""} ${(error && error.details) || ""}`;
+  if (code === "23514" && /leads_status_check/.test(text)) {
+    return "Supabase rejected this lead status (leads_status_check). The database status list needs the update in supabase/migrations/202611030002_lead_status_lost_and_psychologist.sql. Please ask the backend team to apply it.";
+  }
+  if (code === "23514") return "Supabase rejected one of these values because of a database rule. Please check the form and try again.";
+  if (code === "23503") return "The selected psychologist no longer exists. Refresh the page and choose again.";
+  if (code === "23502") return "A required field is missing. Please fill in every required field.";
+  if (code === "23505") return "A lead with these details already exists.";
+  if (code === "42501") return "You do not have permission to save this change. Please ask your administrator to check access.";
+  if (code === "PGRST116") return "Supabase did not update this lead. It may no longer exist, or you may not have permission to edit it.";
+  if (code === "PGRST204" || code === "42703") {
+    return "The leads table is missing a column this change needs. Please ask the backend team to apply the latest migration.";
+  }
+  // Raised on purpose by update_lead_with_history with a message written for staff.
+  if ((code === "P0001" || code === "22023") && error.message) return error.message;
+  return fallback;
+}
 
 export const SOURCES = [
   "Google Ad",

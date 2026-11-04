@@ -1,5 +1,5 @@
-
 import "./globals.css";
+import { BOOT_SCRIPT } from "./lib/theme";
 
 export const metadata = {
   title: "Kappiness CRM",
@@ -14,7 +14,11 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    // The inline script applies the saved theme and sidebar width before the first paint, so React must accept them.
+    <html lang="en" data-theme="light" data-sidebar="collapsed" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

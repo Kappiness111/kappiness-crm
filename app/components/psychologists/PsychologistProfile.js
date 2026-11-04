@@ -4,92 +4,92 @@ import Icon from "../Icon";
 import { formatMemberSince } from "../../lib/psychologists";
 import styles from "./psychologists.module.css";
 
-/* Profile header and detail cards. No authentication identifiers are shown, only whether a login is linked. */
+/* Profile header and details. No authentication identifiers are shown, only whether a login is linked. */
 export default function PsychologistProfile({ psychologist, canManage, statusBusy, onBack, onEdit, onManageAvailability, onToggleActive }) {
   const since = formatMemberSince(psychologist.createdAt);
+  const name = psychologist.name || "Unnamed psychologist";
 
   return (
     <>
-      <section className={`${styles.card} ${styles.profileHeader}`}>
-        <span className={`${styles.avatar} ${styles.avatarLarge}`} aria-hidden="true">
-          {(psychologist.name || "?").charAt(0).toUpperCase()}
-        </span>
-
-        <div className={styles.profileHeading}>
-          <h1>{psychologist.name || "Unnamed psychologist"}</h1>
-          <div className={styles.badgeRow}>
-            <span className={`${styles.badge} ${psychologist.active ? styles.badgeActive : styles.badgeInactive}`}>
-              {psychologist.active ? "Active" : "Inactive"}
-            </span>
+      <header className="page-head">
+        <div className={styles.identity}>
+          <span className="avatar lg" aria-hidden="true">
+            {name.charAt(0).toUpperCase()}
+          </span>
+          <div>
+            <h1>{name}</h1>
+            <p className={styles.identityMeta}>
+              <span className={`badge ${psychologist.active ? "tone-success" : ""}`}>
+                <span className="badge-dot" aria-hidden="true" />
+                {psychologist.active ? "Active" : "Inactive"}
+              </span>
+              <span>{psychologist.hasLogin ? "Login linked" : "No login linked"}</span>
+              {since ? <span>Since {since}</span> : null}
+            </p>
           </div>
         </div>
 
-        <div className={styles.headerActions}>
-          <button className="secondary-button" onClick={onBack}><Icon name="arrowLeft" /> All psychologists</button>
+        <div className="page-actions">
+          <button type="button" className="btn btn-ghost" onClick={onBack}>
+            <Icon name="arrowLeft" /> All psychologists
+          </button>
           {canManage && (
             <>
-              <button className="secondary-button" onClick={onEdit}><Icon name="edit" /> Edit Profile</button>
-              <button className="primary-button" onClick={onManageAvailability}><Icon name="calendar" /> Manage Availability</button>
+              <button type="button" className="btn" onClick={onEdit}>
+                <Icon name="edit" /> Edit profile
+              </button>
+              <button type="button" className="btn btn-primary" onClick={onManageAvailability}>
+                <Icon name="calendar" /> Manage availability
+              </button>
             </>
           )}
         </div>
-      </section>
+      </header>
 
-      <div className={styles.twoCol}>
-        <section className={styles.card}>
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Profile details</h2>
-          </div>
-          <div className={styles.cardBody}>
-            <dl className={styles.detailGrid} style={{ margin: 0 }}>
-              <div className={styles.detailItem}>
-                <dt>Full name</dt>
-                <dd>{psychologist.name || "—"}</dd>
-              </div>
-              <div className={styles.detailItem}>
-                <dt>Phone number</dt>
-                <dd>{psychologist.phone || "—"}</dd>
-              </div>
-              <div className={styles.detailItem}>
-                <dt>Account status</dt>
-                <dd>{psychologist.active ? "Active" : "Inactive"}</dd>
-              </div>
-              <div className={styles.detailItem}>
-                <dt>Profile created</dt>
-                <dd>{since || "—"}</dd>
-              </div>
-            </dl>
-          </div>
-        </section>
+      <section className="section" aria-labelledby="profile-details-title">
+        <div className="section-head">
+          <h2 id="profile-details-title">Details</h2>
+        </div>
+        <div className={`panel ${styles.detailsPanel}`}>
+          <dl className={styles.details}>
+            <div>
+              <dt>Full name</dt>
+              <dd>{psychologist.name || "—"}</dd>
+            </div>
+            <div>
+              <dt>Phone number</dt>
+              <dd className="num">{psychologist.phone || "—"}</dd>
+            </div>
+            <div>
+              <dt>Account status</dt>
+              <dd>{psychologist.active ? "Active" : "Inactive"}</dd>
+            </div>
+            <div>
+              <dt>Profile created</dt>
+              <dd>{since || "—"}</dd>
+            </div>
+          </dl>
 
-        <section className={styles.card}>
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle}>Login account</h2>
-          </div>
-          <div className={styles.cardBody}>
-            <span className={`${styles.badge} ${psychologist.hasLogin ? styles.badgeLinked : styles.badgeInactive}`}>
-              {psychologist.hasLogin ? "Login linked" : "No login linked"}
-            </span>
-            <p className={styles.hint} style={{ marginTop: 10 }}>
+          <div className={styles.loginBox}>
+            <strong>Sign-in account</strong>
+            <p>
               {psychologist.hasLogin
-                ? "This profile is connected to a sign-in account. Account details are managed by the authentication system and are not shown here."
-                : "This profile has no sign-in account yet. Linking one needs the backend account workflow."}
+                ? "Connected to a sign-in account. Account details are managed by the authentication system and are not shown here."
+                : "No sign-in account yet. Linking one needs the backend account workflow."}
             </p>
-
             {canManage && (
-              <div style={{ marginTop: 16 }}>
-                <button
-                  className={psychologist.active ? "secondary-button" : "primary-button"}
-                  disabled={statusBusy}
-                  onClick={onToggleActive}
-                >
-                  {statusBusy ? "Saving..." : psychologist.active ? "Deactivate profile" : "Activate profile"}
-                </button>
-              </div>
+              <button
+                type="button"
+                className={`btn btn-sm ${psychologist.active ? "btn-danger" : ""}`}
+                disabled={statusBusy}
+                onClick={onToggleActive}
+              >
+                {statusBusy ? "Saving…" : psychologist.active ? "Deactivate profile" : "Activate profile"}
+              </button>
             )}
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </>
   );
 }

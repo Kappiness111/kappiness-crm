@@ -4,13 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import Field, { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
+import PsychologistPicker from "./PsychologistPicker";
 import StatusBadge from "./StatusBadge";
 import {
+  CONFIRMED_STATUS,
+  CONFIRM_NEEDS_PSYCHOLOGIST,
   CONTACT_METHODS,
+  LOST_DETAIL_LIMIT,
+  LOST_REASONS,
+  LOST_REASON_OTHER,
+  LOST_STATUS,
   NOTES_LIMIT,
   SERVICES,
   SOURCES,
-  STATUSES,
+  buildLostReason,
+  canMoveStatus,
+  statusOptions,
   dueLabel,
   formatDate,
   formatDateTime,
@@ -18,12 +27,14 @@ import {
   getActivity,
   getFollowUpState,
   parseDate,
+  parseLostReason,
   quickFollowUpValue,
   relativeTime,
   toInputValue,
+  validateLostReason,
   whatsappLink,
 } from "../lib/leads";
-import { APPOINTMENT_STATUSES } from "../lib/appointmentsApi";
+import { AppointmentActionSelect, StatusPill } from "./AppointmentTable";
 
 const ACTIVITY_ICONS = {
   created: "plus",
@@ -130,8 +141,12 @@ function mergeById(...lists) {
 }
 
 function makeDraft(lead) {
+  const lost = parseLostReason(lead.status === LOST_STATUS ? lead.not_converted_reason : "");
   return {
     status: lead.status,
+    assigned_psychologist_id: lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : "",
+    lost_reason: lost.choice,
+    lost_detail: lost.detail,
     source: lead.source || "",
     contact_method: lead.contact_method || "",
     next_follow_up_at: toInputValue(lead.next_follow_up_at),
@@ -172,18 +187,62 @@ function validateDraft(draft, lead) {
   if (draft.notes.length > NOTES_LIMIT) {
     errors.notes = `Keep notes under ${NOTES_LIMIT} characters.`;
   }
+  // Workflow rules (also enforced by update_lead_with_history in Supabase). Older records that are already
+  // Confirmed without a psychologist, or Lost without a reason, can still be edited; the rule applies when the
+  // status changes, when the psychologist is removed, or when the reason is edited.
+  const base = makeDraft(lead);
+  if (!canMoveStatus(lead.status, draft.status)) {
+    errors.status = `A lead cannot move from ${lead.status} to ${draft.status}.`;
+  }
+  if (
+    draft.status === CONFIRMED_STATUS &&
+    !draft.assigned_psychologist_id &&
+    (lead.status !== CONFIRMED_STATUS || base.assigned_psychologist_id)
+  ) {
+    errors.assigned_psychologist_id = CONFIRM_NEEDS_PSYCHOLOGIST;
+  }
+  const lostReasonEdited = draft.lost_reason !== base.lost_reason || draft.lost_detail !== base.lost_detail;
+  if (draft.status === LOST_STATUS && (lead.status !== LOST_STATUS || lostReasonEdited)) {
+    const lost = validateLostReason(draft.lost_reason, draft.lost_detail);
+    if (lost.choice) errors.lost_reason = lost.choice;
+    if (lost.detail) errors.lost_detail = lost.detail;
+  }
   return errors;
 }
 
+// What not_converted_reason should hold for a draft: the reason while Lost, cleared otherwise.
+// An untouched reason on a lead that is already Lost is kept exactly as saved.
+function lostReasonFor(draft, lead) {
+  if (draft.status !== LOST_STATUS) return "";
+  const base = makeDraft(lead);
+  if (lead.status === LOST_STATUS && draft.lost_reason === base.lost_reason && draft.lost_detail === base.lost_detail) {
+    return lead.not_converted_reason || "";
+  }
+  return buildLostReason(draft.lost_reason, draft.lost_detail);
+}
+
 // Builds a readable activity entry for each meaningful change.
-function describeChanges(lead, draft) {
+function describeChanges(lead, draft, psychologistNames = {}) {
   const base = makeDraft(lead);
   const entries = [];
   const followUp = draft.next_follow_up_at;
   const staff = draft.assigned_staff.trim();
+  const reason = lostReasonFor(draft, lead);
 
   if (draft.status !== base.status) {
-    entries.push({ type: "status", text: `Status changed from ${base.status} to ${draft.status}` });
+    entries.push({
+      type: "status",
+      text:
+        draft.status === LOST_STATUS
+          ? `Status changed from ${base.status} to Lost. Reason: ${reason}`
+          : `Status changed from ${base.status} to ${draft.status}`,
+    });
+  } else if (draft.status === LOST_STATUS && reason !== (lead.not_converted_reason || "")) {
+    entries.push({ type: "update", text: `Lost reason updated: ${reason}` });
+  }
+
+  if (base.assigned_psychologist_id !== draft.assigned_psychologist_id) {
+    entries.push({ type: "update", text: describePsychologistChange(draft.assigned_psychologist_id, psychologistNames) });
   }
 
   if (base.next_follow_up_at !== followUp) {
@@ -203,6 +262,62 @@ function describeChanges(lead, draft) {
   }
 
   return entries;
+}
+
+function describePsychologistChange(psychologistId, psychologistNames) {
+  if (!psychologistId) return "Psychologist assignment removed";
+  return `Psychologist assigned: ${psychologistNames[psychologistId] || "selected psychologist"}`;
+}
+
+/* Lost reason dropdown plus the explanation box for "Other". Used by the status quick change and the Edit tab. */
+function LostReasonFields({ idPrefix, reason, detail, onReason, onDetail, errors = {}, disabled = false }) {
+  return (
+    <div className="lost-reason-fields">
+      <Field id={`${idPrefix}-lost_reason`} label="Lost reason" required error={errors.lost_reason}>
+        <select
+          {...fieldProps(`${idPrefix}-lost_reason`, errors.lost_reason)}
+          value={reason}
+          disabled={disabled}
+          onChange={(event) => onReason(event.target.value)}
+        >
+          <option value="" disabled>
+            Choose a reason
+          </option>
+          {LOST_REASONS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {reason === LOST_REASON_OTHER && (
+        <Field
+          id={`${idPrefix}-lost_detail`}
+          label="Explanation"
+          required
+          error={errors.lost_detail}
+          hint={
+            <>
+              A short note for the team.
+              <span className="char-count">
+                {detail.length}/{LOST_DETAIL_LIMIT}
+              </span>
+            </>
+          }
+        >
+          <input
+            {...fieldProps(`${idPrefix}-lost_detail`, errors.lost_detail, "hint")}
+            type="text"
+            maxLength={LOST_DETAIL_LIMIT}
+            value={detail}
+            disabled={disabled}
+            onChange={(event) => onDetail(event.target.value)}
+            placeholder="For example: Moved abroad for work"
+          />
+        </Field>
+      )}
+    </div>
+  );
 }
 
 function InfoItem({ label, children, wide = false }) {
@@ -226,17 +341,21 @@ export default function LeadDetailsModal({
   activityRevision = 0,
   initialTab = "overview",
   followUpBusy = false,
-  onDelete,
   onCompleteFollowUp,
   onSnoozeFollowUp,
   canUpdateStatus = true,
   appointments = [],
   psychologistNames = {},
-  canManageAppointment = () => true,
+  psychologists = [],
+  availability = [],
+  psychologistsState = "ready",
+  onRetryPsychologists,
+  assignmentSupported = true,
+  appointmentActionsFor = () => [],
   canScheduleAppointments = true,
+  hasClientProfile = false,
   onRequestBooking,
-  onRequestReschedule,
-  onUpdateAppointmentStatus,
+  onAppointmentAction,
 }) {
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(() => makeDraft(lead));
@@ -263,6 +382,22 @@ export default function LeadDetailsModal({
   const statusSavingRef = useRef(false);
   const [apptBusyId, setApptBusyId] = useState(null);
   const [apptError, setApptError] = useState("");
+  // Lost needs a reason first, so choosing it in the quick status menu opens a small form instead of saving.
+  const [lostPrompt, setLostPrompt] = useState(null); // null | { reason, detail, submitted }
+  // Psychologist assignment on the Overview tab.
+  const [assignDraft, setAssignDraft] = useState(() =>
+    lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : ""
+  );
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [assignMessage, setAssignMessage] = useState(null); // null | { tone: "success" | "error", text }
+  const assignSavingRef = useRef(false);
+  const leadPsychologist = lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : "";
+  const [seenPsychologist, setSeenPsychologist] = useState(leadPsychologist);
+  if (seenPsychologist !== leadPsychologist) {
+    // The saved assignment changed (Edit tab or another save), so the picker follows it.
+    setSeenPsychologist(leadPsychologist);
+    setAssignDraft(leadPsychologist);
+  }
 
   // Loads the saved activity history for this lead:
   //  - on mount and whenever the parent records new system history (activityRevision), so the badge is right
@@ -317,6 +452,11 @@ export default function LeadDetailsModal({
     ...new Set([...staffOptions, (lead.assigned_staff || "").trim(), currentStaffName].filter(Boolean)),
   ].sort();
   const followUpState = getFollowUpState(lead, now);
+  const lostPromptErrors = (() => {
+    if (!lostPrompt || !lostPrompt.submitted) return {};
+    const found = validateLostReason(lostPrompt.reason, lostPrompt.detail);
+    return { lost_reason: found.choice, lost_detail: found.detail };
+  })();
   const errors = validateDraft(draft, lead);
   const visibleError = (field) => (submitted ? errors[field] : undefined);
   const editDirty = tab === "edit" && JSON.stringify(draft) !== JSON.stringify(makeDraft(lead));
@@ -327,27 +467,53 @@ export default function LeadDetailsModal({
 
   function requestClose() {
     const activityDirty = Boolean(activityDraft.notes.trim() || activityDraft.outcome);
-    if ((editDirty || activityDirty) && !window.confirm("Close without saving your changes?")) return;
+    const assignDirty = tab === "overview" && assignDraft !== leadPsychologist;
+    if ((editDirty || activityDirty || assignDirty) && !window.confirm("Close without saving your changes?")) return;
     onClose();
   }
 
-  async function changeStatus(newStatus) {
+  function changeStatus(newStatus) {
     if (statusSavingRef.current || newStatus === lead.status) return;
+    setStatusError("");
     if (!canUpdateStatus) {
       setStatusError("You do not have permission to change lead statuses.");
       return;
     }
+    if (!canMoveStatus(lead.status, newStatus)) {
+      setStatusError(`A lead cannot move from ${lead.status} to ${newStatus}.`);
+      return;
+    }
+    if (newStatus === CONFIRMED_STATUS && !lead.assigned_psychologist_id) {
+      setLostPrompt(null);
+      setStatusError(CONFIRM_NEEDS_PSYCHOLOGIST);
+      document.getElementById("overview-psychologist")?.focus();
+      return;
+    }
+    if (newStatus === LOST_STATUS) {
+      setLostPrompt({ reason: "", detail: "", submitted: false });
+      return;
+    }
+    setLostPrompt(null);
+    void saveStatus(newStatus, "");
+  }
+
+  // Saves a status change. Leaving Lost clears the old reason; the timeline keeps it.
+  async function saveStatus(newStatus, reason) {
     statusSavingRef.current = true;
     setStatusSaving(true);
     setStatusError("");
 
+    const changes = { status: newStatus };
+    if (newStatus === LOST_STATUS) changes.not_converted_reason = reason;
+    else if (lead.status === LOST_STATUS) changes.not_converted_reason = "";
+    const text =
+      newStatus === LOST_STATUS
+        ? `Status changed from ${lead.status} to Lost. Reason: ${reason}`
+        : `Status changed from ${lead.status} to ${newStatus}`;
+
     let result = null;
     try {
-      result = await onSave(
-        lead.id,
-        { status: newStatus },
-        [{ type: "status", text: `Status changed from ${lead.status} to ${newStatus}` }]
-      );
+      result = await onSave(lead.id, changes, [{ type: "status", text }]);
     } catch {
       result = null;
     }
@@ -356,14 +522,67 @@ export default function LeadDetailsModal({
     setStatusSaving(false);
     if (!result || !result.ok) {
       setStatusError((result && result.message) || "Could not save this change. Please try again.");
+      return false;
     }
+    return true;
   }
 
-  async function changeAppointmentStatus(appointment, status) {
-    if (apptBusyId || status === appointment.status) return;
+  async function confirmLost(event) {
+    event.preventDefault();
+    if (!lostPrompt || statusSavingRef.current) return;
+    const errors = validateLostReason(lostPrompt.reason, lostPrompt.detail);
+    if (errors.choice || errors.detail) {
+      setLostPrompt({ ...lostPrompt, submitted: true });
+      document.getElementById(errors.choice ? "lost-lost_reason" : "lost-lost_detail")?.focus();
+      return;
+    }
+    const saved = await saveStatus(LOST_STATUS, buildLostReason(lostPrompt.reason, lostPrompt.detail));
+    if (saved) setLostPrompt(null);
+  }
+
+  async function saveAssignment() {
+    if (assignSavingRef.current) return;
+    const current = lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : "";
+    if (assignDraft === current) return;
+    if (!canUpdateStatus) {
+      setAssignMessage({ tone: "error", text: "You do not have permission to assign psychologists." });
+      return;
+    }
+    if (!assignDraft && lead.status === CONFIRMED_STATUS) {
+      setAssignMessage({ tone: "error", text: "A confirmed lead needs a psychologist. Choose another one instead of clearing it." });
+      return;
+    }
+
+    assignSavingRef.current = true;
+    setAssignSaving(true);
+    setAssignMessage(null);
+    let result = null;
+    try {
+      result = await onSave(lead.id, { assigned_psychologist_id: assignDraft || null }, [
+        { type: "update", text: describePsychologistChange(assignDraft, psychologistNames) },
+      ]);
+    } catch {
+      result = null;
+    }
+    assignSavingRef.current = false;
+    setAssignSaving(false);
+
+    if (!result || !result.ok) {
+      setAssignMessage({ tone: "error", text: (result && result.message) || "Could not save the assignment. Please try again." });
+      return;
+    }
+    setStatusError((message) => (message === CONFIRM_NEEDS_PSYCHOLOGIST ? "" : message));
+    setAssignMessage({
+      tone: "success",
+      text: assignDraft ? `${psychologistNames[assignDraft] || "Psychologist"} assigned.` : "Psychologist assignment removed.",
+    });
+  }
+
+  async function runAppointmentAction(appointment, action) {
+    if (apptBusyId) return;
     setApptBusyId(appointment.id);
     setApptError("");
-    const result = await onUpdateAppointmentStatus(appointment, status);
+    const result = await onAppointmentAction(appointment, action);
     setApptBusyId(null);
     if (!result || !result.ok) setApptError((result && result.message) || "Could not update the appointment.");
   }
@@ -380,9 +599,15 @@ export default function LeadDetailsModal({
     if (editSavingRef.current) return; // block duplicate submissions
     setSubmitted(true);
 
-    const first = ["source", "contact_method", "next_follow_up_at", "notes"].find(
-      (field) => errors[field]
-    );
+    const first = [
+      "assigned_psychologist_id",
+      "lost_reason",
+      "lost_detail",
+      "source",
+      "contact_method",
+      "next_follow_up_at",
+      "notes",
+    ].find((field) => errors[field]);
     if (first) {
       document.getElementById(`edit-${first}`)?.focus();
       return;
@@ -393,7 +618,7 @@ export default function LeadDetailsModal({
       return;
     }
 
-    const entries = describeChanges(lead, draft);
+    const entries = describeChanges(lead, draft, psychologistNames);
     if (entries.length === 0) {
       setTab("overview");
       return;
@@ -407,6 +632,11 @@ export default function LeadDetailsModal({
       lead.id,
       {
         status: draft.status,
+        assigned_psychologist_id: draft.assigned_psychologist_id || null,
+        // Only touch the reason when Lost is involved, so other records keep whatever they already hold.
+        ...(draft.status === LOST_STATUS || lead.status === LOST_STATUS
+          ? { not_converted_reason: lostReasonFor(draft, lead) }
+          : {}),
         source: draft.source,
         contact_method: draft.contact_method,
         assigned_staff: draft.assigned_staff.trim(),
@@ -485,11 +715,6 @@ export default function LeadDetailsModal({
     void saveActivity(false);
   }
 
-  function handleDelete() {
-    if (!window.confirm(`Delete ${lead.full_name} (${lead.lead_code})? This cannot be undone.`)) return;
-    onDelete(lead.id);
-  }
-
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "activity", label: "Activity", count: activity.length },
@@ -497,13 +722,18 @@ export default function LeadDetailsModal({
   ];
 
   return (
-    <ModalShell variant="drawer" labelledBy="lead-details-title" onRequestClose={requestClose}>
+    <ModalShell variant="drawer" className="lead-drawer" labelledBy="lead-details-title" onRequestClose={requestClose}>
       <div className="drawer-toolbar">
         <button type="button" className="drawer-back" onClick={requestClose}>
-          <Icon name="arrowLeft" /> <span>Back to leads</span>
+          <Icon name="arrowLeft" /> <span>Leads</span>
         </button>
 
         <div className="drawer-toolbar-actions">
+          {tab !== "edit" && (
+            <button type="button" className="mini-button" onClick={openEdit}>
+              <Icon name="edit" /> <span className="btn-label">Edit</span>
+            </button>
+          )}
           <a className="mini-button" href={`tel:${lead.phone.replace(/\s/g, "")}`}>
             <Icon name="phone" /> <span className="btn-label">Call</span>
           </a>
@@ -525,6 +755,12 @@ export default function LeadDetailsModal({
           <h2 id="lead-details-title">{lead.full_name}</h2>
           <p className="drawer-sub">
             {lead.lead_code} · {lead.service_interest || "Service not set"}
+          </p>
+          <p className={`drawer-psychologist ${leadPsychologist ? "" : "unassigned"}`}>
+            <Icon name="userCheck" />
+            {leadPsychologist
+              ? psychologistNames[leadPsychologist] || "Assigned psychologist"
+              : "No psychologist assigned"}
           </p>
         </div>
 
@@ -554,31 +790,152 @@ export default function LeadDetailsModal({
           <div className="drawer-columns">
             <div className="drawer-col">
               <section className="info-section">
-                <h4>Contact information</h4>
-                <div className="info-grid">
-                  <InfoItem label="Phone">
-                    <a href={`tel:${lead.phone.replace(/\s/g, "")}`}>{lead.phone}</a>
-                  </InfoItem>
-                  <InfoItem label="Email">
-                    {lead.email ? <a href={`mailto:${lead.email}`}>{lead.email}</a> : "Not provided"}
-                  </InfoItem>
-                </div>
+                <h4>Status</h4>
+                <Field id="overview-status" label="Lead status">
+                  <select
+                    id="overview-status"
+                    value={lostPrompt ? LOST_STATUS : lead.status}
+                    disabled={statusSaving || !canUpdateStatus || statusOptions(lead.status).length <= 1}
+                    aria-describedby={statusError ? "overview-status-error" : undefined}
+                    onChange={(event) => changeStatus(event.target.value)}
+                  >
+                    {statusOptions(lead.status).map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!canUpdateStatus && <p className="subtle-text">Your role cannot change lead statuses.</p>}
+                {canUpdateStatus && statusOptions(lead.status).length <= 1 && (
+                  <p className="subtle-text">{lead.status} is a final status.</p>
+                )}
+
+                {lostPrompt && (
+                  <form className="lost-prompt" noValidate onSubmit={confirmLost} aria-label="Mark lead as lost">
+                    <p className="lost-prompt-title">Why was this lead lost?</p>
+                    <LostReasonFields
+                      idPrefix="lost"
+                      reason={lostPrompt.reason}
+                      detail={lostPrompt.detail}
+                      disabled={statusSaving}
+                      onReason={(reason) => setLostPrompt((current) => ({ ...current, reason }))}
+                      onDetail={(detail) => setLostPrompt((current) => ({ ...current, detail }))}
+                      errors={lostPromptErrors}
+                    />
+                    <div className="lost-prompt-actions">
+                      <button type="submit" className="primary-button" disabled={statusSaving}>
+                        {statusSaving ? "Saving…" : "Mark as lost"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={statusSaving}
+                        onClick={() => {
+                          setLostPrompt(null);
+                          setStatusError("");
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {statusSaving && !lostPrompt && (
+                  <p className="subtle-text" role="status">
+                    Saving…
+                  </p>
+                )}
+                {statusError && (
+                  <p className="field-error" id="overview-status-error" role="alert">
+                    {statusError}
+                  </p>
+                )}
+
+                {lead.status === LOST_STATUS && !lostPrompt && (
+                  <div className="lost-reason-box">
+                    <span>Lost reason</span>
+                    <strong>{lead.not_converted_reason || "No reason recorded"}</strong>
+                  </div>
+                )}
               </section>
 
-              <section className="info-section">
-                <h4>Enquiry information</h4>
-                <div className="info-grid">
-                  <InfoItem label="Source">{lead.source}</InfoItem>
-                  <InfoItem label="Contact method">{lead.contact_method || "Not provided"}</InfoItem>
-                  <InfoItem label="Service">{lead.service_interest || "Not set"}</InfoItem>
-                  <InfoItem label="Assigned staff">{lead.assigned_staff || "Unassigned"}</InfoItem>
-                  <InfoItem label="Date added">{formatDate(lead.created_at)}</InfoItem>
-                  <InfoItem label="Last updated">{formatDate(lead.updated_at)}</InfoItem>
+              <section
+                className={`assign-card ${leadPsychologist ? "assigned" : "unassigned"}`}
+                aria-labelledby="assign-card-title"
+              >
+                <div className="assign-card-head">
+                  <div>
+                    <h4 id="assign-card-title">Psychologist assignment</h4>
+                    <p>
+                      {leadPsychologist
+                        ? "This psychologist will see the client once the lead is confirmed and booked."
+                        : "Required before the lead can be set to Confirmed."}
+                    </p>
+                  </div>
+                  <span className={`assign-state ${leadPsychologist ? "ok" : ""}`}>
+                    {leadPsychologist ? "Assigned" : "Unassigned"}
+                  </span>
                 </div>
-              </section>
-            </div>
 
-            <div className="drawer-col">
+                {!assignmentSupported ? (
+                  <p className="assign-note" role="note">
+                    Psychologist assignment needs the <code>assigned_psychologist_id</code> column on the leads table. Ask
+                    the backend team to apply <code>202611030002_lead_status_lost_and_psychologist.sql</code>.
+                  </p>
+                ) : (
+                  <>
+                    <PsychologistPicker
+                      id="overview-psychologist"
+                      label={leadPsychologist ? "Assigned psychologist" : "Choose a psychologist"}
+                      psychologists={psychologists}
+                      availability={availability}
+                      value={assignDraft || null}
+                      onChange={(value) => {
+                        setAssignMessage(null);
+                        setAssignDraft(value ? String(value) : "");
+                      }}
+                      disabled={!canUpdateStatus || assignSaving}
+                      loadState={psychologistsState}
+                      onRetry={onRetryPsychologists}
+                    />
+                    {!canUpdateStatus && <p className="subtle-text">Your role cannot change psychologist assignments.</p>}
+                    {assignDraft !== leadPsychologist && (
+                      <div className="assign-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() => void saveAssignment()}
+                          disabled={assignSaving}
+                        >
+                          {assignSaving ? "Saving…" : assignDraft ? "Save assignment" : "Remove assignment"}
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            setAssignDraft(leadPsychologist);
+                            setAssignMessage(null);
+                          }}
+                          disabled={assignSaving}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {assignMessage && (
+                      <p
+                        className={assignMessage.tone === "error" ? "field-error" : "success-text"}
+                        role={assignMessage.tone === "error" ? "alert" : "status"}
+                      >
+                        {assignMessage.text}
+                      </p>
+                    )}
+                  </>
+                )}
+              </section>
+
               <section className="info-section">
                 <h4>Next follow up</h4>
                 <div className={`followup-banner ${followUpState === "overdue" ? "overdue" : ""}`}>
@@ -614,40 +971,17 @@ export default function LeadDetailsModal({
               </section>
 
               <section className="info-section">
-                <h4>Status</h4>
-                <Field id="overview-status" label="Lead status">
-                  <select
-                    id="overview-status"
-                    value={lead.status}
-                    disabled={statusSaving || !canUpdateStatus}
-                    onChange={(event) => void changeStatus(event.target.value)}
-                  >
-                    {[...new Set([...STATUSES, lead.status])].map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {!canUpdateStatus && <p className="subtle-text">Your role cannot change lead statuses.</p>}
-                {statusSaving && (
-                  <p className="subtle-text" role="status">
-                    Saving…
-                  </p>
-                )}
-                {statusError && (
-                  <p className="field-error" role="alert">
-                    {statusError}
-                  </p>
-                )}
-              </section>
-
-              <section className="info-section">
                 <h4>Appointments</h4>
 
                 {lead.status !== "Confirmed" && (
                   <p className="subtle-text">
-                    This lead is {lead.status}, so it has no confirmed appointment. Set the status to Confirmed to book one.
+                    This lead is {lead.status}, so it has no client profile or appointments yet. Assign a psychologist and set
+                    it to Confirmed to create the client profile.
+                  </p>
+                )}
+                {lead.status === "Confirmed" && !hasClientProfile && (
+                  <p className="subtle-text">
+                    The client profile is created when a Confirmed lead has a psychologist. Assign one above if it is missing.
                   </p>
                 )}
 
@@ -660,31 +994,20 @@ export default function LeadDetailsModal({
                             <strong>{formatDateTime(item.starts_at)}</strong>
                             {item.ends_at ? ` – ${formatTime(item.ends_at)}` : ""}
                           </p>
-                          <p className="activity-text">{psychologistNames[item.psychologist_id] || "Psychologist not set"}</p>
+                          <p className="activity-text">
+                            {psychologistNames[item.psychologist_id] || "Psychologist not set"}
+                            {item.service_type ? ` · ${item.service_type}` : ""}
+                          </p>
                           {item.notes ? <p className="activity-text">{item.notes}</p> : null}
-                          {canManageAppointment(item) ? (
-                            <>
-                              <select
-                                aria-label="Appointment status"
-                                value={item.status}
-                                disabled={apptBusyId === item.id}
-                                onChange={(event) => void changeAppointmentStatus(item, event.target.value)}
-                              >
-                                {APPOINTMENT_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
-                              {item.status === "Scheduled" && (
-                                <button type="button" className="mini-button" onClick={() => onRequestReschedule(item)}>
-                                  Reschedule
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <span className="chip small">{item.status}</span>
-                          )}
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                            <StatusPill status={item.status} />
+                            <AppointmentActionSelect
+                              item={item}
+                              actions={appointmentActionsFor(item)}
+                              onAction={(appointment, action) => void runAppointmentAction(appointment, action)}
+                              disabled={apptBusyId === item.id}
+                            />
+                          </div>
                         </div>
                       </li>
                     ))}
@@ -696,11 +1019,37 @@ export default function LeadDetailsModal({
                   </p>
                 )}
 
-                {lead.status === "Confirmed" && canScheduleAppointments && (
+                {lead.status === "Confirmed" && hasClientProfile && canScheduleAppointments && (
                   <button type="button" className="mini-button primary" onClick={() => onRequestBooking(lead)}>
                     <Icon name="calendar" /> Book appointment
                   </button>
                 )}
+              </section>
+            </div>
+
+            <div className="drawer-col">
+              <section className="info-section">
+                <h4>Contact information</h4>
+                <div className="info-grid">
+                  <InfoItem label="Phone">
+                    <a href={`tel:${lead.phone.replace(/\s/g, "")}`}>{lead.phone}</a>
+                  </InfoItem>
+                  <InfoItem label="Email">
+                    {lead.email ? <a href={`mailto:${lead.email}`}>{lead.email}</a> : "Not provided"}
+                  </InfoItem>
+                </div>
+              </section>
+
+              <section className="info-section">
+                <h4>Enquiry information</h4>
+                <div className="info-grid">
+                  <InfoItem label="Source">{lead.source}</InfoItem>
+                  <InfoItem label="Contact method">{lead.contact_method || "Not provided"}</InfoItem>
+                  <InfoItem label="Service">{lead.service_interest || "Not set"}</InfoItem>
+                  <InfoItem label="Assigned staff">{lead.assigned_staff || "Unassigned"}</InfoItem>
+                  <InfoItem label="Date added">{formatDate(lead.created_at)}</InfoItem>
+                  <InfoItem label="Last updated">{formatDate(lead.updated_at)}</InfoItem>
+                </div>
               </section>
 
               <section className="info-section">
@@ -881,7 +1230,6 @@ export default function LeadDetailsModal({
             <div className="drawer-columns">
             <section className="form-section">
               <div className="form-section-head">
-                <span className="step">1</span>
                 <div>
                   <h3>Status and follow up</h3>
                   <p>Keep the pipeline accurate.</p>
@@ -893,14 +1241,50 @@ export default function LeadDetailsModal({
                   <select
                     {...props("status")}
                     value={draft.status}
-                    disabled={!canUpdateStatus}
+                    disabled={!canUpdateStatus || statusOptions(lead.status).length <= 1}
                     onChange={onChange("status")}
                   >
-                    {[...new Set([...STATUSES, lead.status])].map((status) => (
+                    {statusOptions(lead.status).map((status) => (
                       <option key={status}>{status}</option>
                     ))}
                   </select>
                 </Field>
+
+                {draft.status === LOST_STATUS && (
+                  <div className="field span-2">
+                    <LostReasonFields
+                      idPrefix="edit"
+                      reason={draft.lost_reason}
+                      detail={draft.lost_detail}
+                      disabled={!canUpdateStatus}
+                      onReason={(value) => setField("lost_reason", value)}
+                      onDetail={(value) => setField("lost_detail", value)}
+                      errors={{ lost_reason: visibleError("lost_reason"), lost_detail: visibleError("lost_detail") }}
+                    />
+                  </div>
+                )}
+
+                <div className="field span-2">
+                  {assignmentSupported ? (
+                    <PsychologistPicker
+                      id="edit-assigned_psychologist_id"
+                      label={draft.status === CONFIRMED_STATUS ? "Assigned psychologist *" : "Assigned psychologist"}
+                      psychologists={psychologists}
+                      availability={availability}
+                      value={draft.assigned_psychologist_id || null}
+                      onChange={(value) => setField("assigned_psychologist_id", value ? String(value) : "")}
+                      disabled={!canUpdateStatus}
+                      loadState={psychologistsState}
+                      onRetry={onRetryPsychologists}
+                      error={visibleError("assigned_psychologist_id")}
+                    />
+                  ) : (
+                    <p className="assign-note" role="note">
+                      Psychologist assignment is not available until the database migration is applied.
+                      {draft.status === CONFIRMED_STATUS ? ` ${CONFIRM_NEEDS_PSYCHOLOGIST}` : ""}
+                    </p>
+                  )}
+                </div>
 
                 <Field
                   id="edit-next_follow_up_at"
@@ -963,7 +1347,6 @@ export default function LeadDetailsModal({
 
             <section className="form-section">
               <div className="form-section-head">
-                <span className="step">2</span>
                 <div>
                   <h3>Client details</h3>
                   <p>Capture the service they are interested in and practical enquiry notes.</p>
@@ -1012,9 +1395,6 @@ export default function LeadDetailsModal({
           )}
 
           <div className="modal-footer-sticky">
-            <button type="button" className="danger-button" onClick={handleDelete} disabled={editSaving}>
-              <Icon name="trash" /> Delete
-            </button>
             <button type="button" className="secondary-button" onClick={() => setTab("overview")} disabled={editSaving}>
               Cancel
             </button>

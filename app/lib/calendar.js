@@ -109,6 +109,7 @@ export const TYPE_META = {
 export const STATUS_META = {
   scheduled: { label: "Scheduled" },
   confirmed: { label: "Confirmed" },
+  rescheduled: { label: "Rescheduled" },
   completed: { label: "Completed" },
   cancelled: { label: "Cancelled" },
   missed: { label: "Missed" },
