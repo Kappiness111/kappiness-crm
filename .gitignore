@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local database backups — may contain sensitive client data
+supabase/backups/
+
+# local supabase cli state
+supabase/.temp/
