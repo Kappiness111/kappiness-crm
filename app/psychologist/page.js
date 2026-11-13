@@ -35,6 +35,177 @@ const PREVIEW_ENABLED = process.env.NODE_ENV !== "production";
 const SECTION_TITLES = Object.fromEntries(PSYCHOLOGIST_NAV.map((item) => [item.id, item.label]));
 const SECTIONS = PSYCHOLOGIST_NAV.map((item) => item.id);
 
+const KOLKATA_DATE_TIME = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function formatKolkata(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : KOLKATA_DATE_TIME.format(date);
+}
+
+// Read-only lists of this psychologist's active clients and upcoming appointments. Access is decided by RLS
+// (clients_read / appointments_read); the filters below only narrow what the signed-in user may already read.
+function AssignedClientsAndAppointments({ psychologistId }) {
+  const [clientsState, setClientsState] = useState({ loading: true, items: [], error: "" });
+  const [upcomingState, setUpcomingState] = useState({ loading: true, items: [], error: "" });
+
+  useEffect(() => {
+    if (!psychologistId) return undefined;
+    let cancelled = false;
+    const supabase = createClient();
+
+    supabase
+      .from("clients")
+      .select("id, full_name, phone, email, city")
+      .eq("primary_psychologist_id", psychologistId)
+      .eq("is_active", true)
+      .order("full_name", { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("Failed to load assigned clients:", error);
+          setClientsState({ loading: false, items: [], error: describeError(error, "Could not load your clients.") });
+        } else {
+          setClientsState({ loading: false, items: data || [], error: "" });
+        }
+      });
+
+    supabase
+      .from("appointments")
+      .select("id, service_type, starts_at, ends_at, status, client:clients(full_name)")
+      .eq("psychologist_id", psychologistId)
+      .in("status", ["Scheduled", "Confirmed"])
+      .gte("starts_at", new Date().toISOString())
+      .order("starts_at", { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("Failed to load upcoming appointments:", error);
+          setUpcomingState({ loading: false, items: [], error: describeError(error, "Could not load upcoming appointments.") });
+        } else {
+          setUpcomingState({ loading: false, items: data || [], error: "" });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [psychologistId]);
+
+  return (
+    <>
+      <section className="section">
+        <div className="section-head">
+          <div>
+            <h2>My clients</h2>
+            <p>Active clients assigned to you.</p>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="table-wrap">
+            <table className="table sticky-first">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>City</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clientsState.loading || clientsState.error || clientsState.items.length === 0 ? (
+                  <tr className="table-state">
+                    <td colSpan={4}>
+                      {clientsState.loading ? (
+                        <div className="state compact" aria-busy="true">Loading clients…</div>
+                      ) : clientsState.error ? (
+                        <div className="state compact error" role="alert">
+                          <strong>Could not load your clients</strong>
+                          {clientsState.error}
+                        </div>
+                      ) : (
+                        <div className="state compact">No assigned clients yet.</div>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  clientsState.items.map((client) => (
+                    <tr key={client.id}>
+                      <td>{client.full_name || "—"}</td>
+                      <td>{client.phone || "—"}</td>
+                      <td>{client.email || "—"}</td>
+                      <td>{client.city || "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="section-head">
+          <div>
+            <h2>Upcoming appointments</h2>
+            <p>Scheduled and confirmed appointments from now on. Times are in India Standard Time.</p>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="table-wrap">
+            <table className="table sticky-first">
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>Service</th>
+                  <th>Starts</th>
+                  <th>Ends</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {upcomingState.loading || upcomingState.error || upcomingState.items.length === 0 ? (
+                  <tr className="table-state">
+                    <td colSpan={5}>
+                      {upcomingState.loading ? (
+                        <div className="state compact" aria-busy="true">Loading appointments…</div>
+                      ) : upcomingState.error ? (
+                        <div className="state compact error" role="alert">
+                          <strong>Could not load upcoming appointments</strong>
+                          {upcomingState.error}
+                        </div>
+                      ) : (
+                        <div className="state compact">No upcoming appointments.</div>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  upcomingState.items.map((appointment) => (
+                    <tr key={appointment.id}>
+                      <td>{(appointment.client && appointment.client.full_name) || "—"}</td>
+                      <td>{appointment.service_type || "—"}</td>
+                      <td>{formatKolkata(appointment.starts_at)}</td>
+                      <td>{formatKolkata(appointment.ends_at)}</td>
+                      <td>{appointment.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function PsychologistDashboard() {
   const router = useRouter();
   const narrow = useIsNarrow();
@@ -367,6 +538,8 @@ function PsychologistDashboard() {
         {section === "dashboard" && hasProfile && (
           <PsychologistOverview psychologistId={psychologistId} name={name} now={now} onNavigate={(id) => navigate(id)} onOpenClient={openClient} />
         )}
+
+        {section === "dashboard" && hasProfile && <AssignedClientsAndAppointments psychologistId={psychologistId} />}
 
         {section === "clients" && hasProfile && !clientId && (
           <>
