@@ -45,3 +45,6 @@ supabase/backups/
 
 # local supabase cli state
 supabase/.temp/
+
+# Local MCP server configuration (points at the production project; keep out of git)
+.mcp.json

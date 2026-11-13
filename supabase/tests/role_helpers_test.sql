@@ -1,4 +1,5 @@
--- Kappiness CRM: tests for 202611040003_role_helpers_use_staff_membership.sql
+-- Kappiness CRM: tests for the membership-based role helpers is_crm_staff() / is_crm_admin(), as installed on
+-- production by 202611130001 (identical to the superseded 202611040003).
 -- Owner: Aswathy (backend / security).
 --
 -- RUN ONLY ON A DISPOSABLE DATABASE (fresh local stack or Supabase branch). NEVER ON THE LIVE PROJECT.
@@ -14,8 +15,8 @@
 --
 -- PRECONDITIONS (database state the tests expect)
 --   A copy of the live schema (leads, lead_activities, psychologists, psychologist_availability with their
---   live policies, crm_staff_members from 202611030001), then the atomic bundle
---   supabase/deploy/202611040005_atomic_bundle.sql.
+--   live policies, crm_staff_members from 202611030001), then the production path in
+--   supabase/test-bootstrap/README.md (202611030002, 202611040001, 202611130001, 202611130002).
 --   psychologists: id uuid, auth_user_id uuid NOT NULL, full_name text NOT NULL, is_active boolean NOT NULL
 --   (confirmed on live 4 Nov 2026). phone is assumed to exist (the app reads it); it is not confirmed as
 --   NOT NULL, so the fixture supplies it.

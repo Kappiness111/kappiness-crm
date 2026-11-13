@@ -1,7 +1,8 @@
 -- Kappiness CRM TEST BOOTSTRAP, step 1 of 4: baseline from the 27 Oct schema snapshot.
 -- Owner: Aswathy (backend / testing).
 --
--- TARGET: the separate, EMPTY Supabase project kappiness-crm-test ONLY. Never production.
+-- TARGET: a disposable, EMPTY Supabase-compatible database ONLY (the hosted kappiness-crm-test project was
+-- retired 13 Nov 2026; see supabase/test-bootstrap/README.md). Never production.
 --
 -- SOURCE: supabase/backups/schema_before_migration.sql (schema only: it has no COPY / INSERT / setval).
 --   Kept:   lead_code_seq, leads, lead_activities, their constraints, indexes, FK, the set_lead_code

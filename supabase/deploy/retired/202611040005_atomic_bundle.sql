@@ -1,5 +1,16 @@
+-- ##########################################################################################################
+-- RETIRED 13 Nov 2026. DO NOT RUN THIS FILE ANYWHERE.
+-- It replays 202611030002 and 202611040001 (already live on production) and contains 202611040004, which must
+-- never be applied (see supabase/migrations_superseded/README.md). Production was fixed instead by
+-- supabase/deploy/202611130003_02_production_deploy.sql.
+-- SAFETY: the first statement inside the transaction below raises an exception. In any client (psql with or
+-- without ON_ERROR_STOP, the Supabase SQL Editor) every later statement then fails and the final COMMIT becomes
+-- a ROLLBACK, so running this file changes nothing. scripts/build-deploy-bundle.mjs no longer rebuilds it.
+-- Kept unchanged below this banner (except that guard) as a historical record.
+-- ##########################################################################################################
+--
 -- Kappiness CRM: ATOMIC DEPLOYMENT BUNDLE. GENERATED FILE: DO NOT EDIT.
--- Regenerate with: node scripts/build-deploy-bundle.mjs   (verify with --check)
+-- Regenerate with: node scripts/build-deploy-bundle.mjs   (verify with --check)  [RETIRED: the script now refuses]
 --
 -- Everything below runs in ONE transaction. Any error rolls back every part, so the insecure role
 -- helpers of 202611040001 and the weaker lead function of 202611030002 are never committed.
@@ -13,6 +24,13 @@
 --   202611040005_psychologist_availability_security.sql  cd8e1b9fd1d952d6eac078d71c54f850089977bdd87e19f119004c84cfb4c406
 
 BEGIN;
+
+-- RETIRED-BUNDLE GUARD: abort the transaction before anything else runs.
+DO $retired$
+BEGIN
+  RAISE EXCEPTION 'RETIRED: supabase/deploy/retired/202611040005_atomic_bundle.sql must never be run. Nothing was changed. See supabase/migrations_superseded/README.md.';
+END
+$retired$;
 
 -- =====================================================================================
 -- BEGIN 202611030002_lead_status_lost_and_psychologist.sql  (outer BEGIN; at line 26 and COMMIT; at line 301 removed)
