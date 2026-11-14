@@ -1582,3 +1582,103 @@ button.slot:hover:not(:disabled) { border-color: var(--border-strong); backgroun
 .dash-grid.psych { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 1199px) { .dash-grid.psych { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash-grid.psych > :first-child { grid-column: 1 / -1; } }
 @media (max-width: 767px) { .dash-grid.psych { grid-template-columns: minmax(0, 1fr); } }
+
+/* =====================================================================
+   Section tabs, follow-up sessions and reminders
+   ===================================================================== */
+
+.page-tabs { padding: 0; margin-bottom: -8px; }
+.block { display: block; }
+
+.followup-table td { vertical-align: top; }
+.reminder-cell { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.response-empty { font-size: 12px; }
+
+.followup-body .info-section:first-of-type { padding-top: 4px; }
+.followup-slot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.followup-slot > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.followup-slot .muted { font-size: 12.5px; }
+.released-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.released-list li { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 14px; border-left: 2px solid var(--border-strong); }
+.released-list s { color: var(--text-3); }
+.followup-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+.reminder-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 599px) { .reminder-pair { grid-template-columns: minmax(0, 1fr); } }
+.reminder-card { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.reminder-card.is-due { border-color: var(--warning-dot); box-shadow: inset 3px 0 0 var(--warning-dot); }
+.reminder-card.is-empty { background: var(--surface-2); }
+.reminder-card.is-empty p { font-size: 12.5px; }
+.reminder-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.reminder-head .muted, .reminder-due { font-size: 12px; }
+.reminder-due { color: var(--warning-text); font-weight: 600; }
+.reminder-rows { display: flex; flex-direction: column; gap: 10px; margin: 0; }
+.reminder-rows dt { font-size: 11.5px; color: var(--text-3); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px; }
+.reminder-rows dd { margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.reminder-rows small { font-size: 12px; }
+.reminder-note { color: var(--text-2); font-size: 12.5px; }
+.reminder-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.reminder-history { margin-top: 12px; font-size: 12.5px; }
+.reminder-history summary { cursor: pointer; color: var(--text-2); margin-bottom: 8px; }
+
+.choice-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; cursor: pointer; color: var(--text-2); }
+.choice input { margin: 0; }
+.choice.is-checked { border-color: var(--brand); color: var(--text); background: var(--accent-soft); }
+fieldset.field { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+/* Psychologist "My day": chart row, waiting list, today's schedule markers (existing tokens only) */
+.dash-grid.halves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 899px) { .dash-grid.halves { grid-template-columns: minmax(0, 1fr); } }
+.pending-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pending-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--text); }
+.pending-list li span { flex: 1 1 220px; min-width: 0; }
+
+/* Psychologist "My day" lists: time | name, details and status stacked | one action. Names are never squeezed. */
+.agenda { list-style: none; margin: 0; padding: 0; }
+.agenda-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 4px 14px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--divider); }
+.agenda-row.no-time { grid-template-columns: minmax(0, 1fr) auto; }
+.agenda-row:last-child { border-bottom: 0; }
+.agenda-when { color: var(--text-2); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.35; }
+.agenda-when small { display: block; color: var(--text-3); font-weight: 400; font-size: 11.5px; }
+.agenda-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.agenda-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--text); }
+.agenda-title > strong, .agenda-title > .link-btn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.agenda-sub { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agenda-status { margin-top: 3px; }
+.agenda-row > .appt-btn { align-self: center; }
+.agenda-row.is-closed .agenda-body, .agenda-row.is-closed .agenda-when { opacity: 0.6; }
+.agenda-row.is-next { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
+
+/* Notification centre (extends the existing notification panel) */
+.notif-center { width: min(400px, calc(100vw - 24px)); }
+.notif-center .notif-list { max-height: min(60vh, 520px); overflow-y: auto; }
+.notif-filters { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--divider); overflow-x: auto; scrollbar-width: none; }
+.notif-filters::-webkit-scrollbar { display: none; }
+.notif-filters button { flex: 0 0 auto; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--text-3); font-size: 12px; font-weight: 500; }
+.notif-filters button.is-active { background: var(--accent-soft); border-color: var(--brand); color: var(--text); }
+.notif-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.notif-action { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; color: var(--accent-text); font-size: 12px; font-weight: 600; }
+.notif-action .ui-svg { width: 12px; height: 12px; }
+.notif-foot { padding: 8px 14px 10px; border-top: 1px solid var(--divider); color: var(--text-3); font-size: 11.5px; }
+
+/* Reports */
+.report-note { margin-top: -6px; }
+.report-toolbar { flex-wrap: wrap; padding: 0; border: 0; background: none; }
+.date-filter { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12.5px; }
+.date-filter input { height: var(--control-h); }
+.kpis button.kpi[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--brand); }
+
+.tab.tab-closed { margin-left: auto; }
+
+/* Booking review before saving */
+.booking-review { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding: 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--surface-2); font-size: 13px; }
+.booking-review dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
+.booking-review dt { color: var(--text-3); }
+.booking-review dd { margin: 0; color: var(--text); }
+.booking-review s { color: var(--text-3); }
+
+.workload { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
+.workload strong { color: var(--text); font-weight: 600; }
+
+.client-search { margin-bottom: 6px; width: 100%; }

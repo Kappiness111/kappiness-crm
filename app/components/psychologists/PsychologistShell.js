@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import AppShell from "../AppShell";
 import useCurrentUser from "./useCurrentUser";
+import NotificationCenter from "../notifications/NotificationCenter";
 import { CRM_NAV, crmHref, roleLabel } from "../../lib/navigation";
 
 /* Frame for the /psychologists routes: the same CRM shell and navigation as the rest of the staff workspace.
@@ -25,6 +26,7 @@ export default function PsychologistShell({ crumbs = [], activeId = "Psychologis
       activeId={activeId}
       workspaceLabel="Client relations"
       crumbs={trail}
+      headerActions={role === "psychologist" ? null : <NotificationCenter onNavigate={(href) => router.push(href)} />}
       user={{ name, email, roleLabel: roleLabel(role) }}
     >
       {children}

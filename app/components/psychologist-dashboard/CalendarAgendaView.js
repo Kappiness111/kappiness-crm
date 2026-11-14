@@ -28,7 +28,7 @@ export default function CalendarAgendaView({ anchor, appointments, selected, now
       <div className={styles.agenda}>
         {items.length === 0 ? (
           <p className={styles.emptyNote}>
-            {supported ? "No sessions on this day." : "Sessions will appear here once appointment data is connected."}
+            {supported ? "No appointments on this day." : "Your appointments will appear here once scheduling is set up."}
           </p>
         ) : (
           items.map((item) => <AppointmentCard key={item.id} appointment={item} onSelect={onSelectAppointment} />)

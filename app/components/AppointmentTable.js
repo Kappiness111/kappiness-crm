@@ -16,8 +16,9 @@ export function Avatar({ name }) {
   );
 }
 
-export function StatusPill({ status }) {
-  return <span className={`appt-pill pill-${String(status).toLowerCase()}`}>{status}</span>;
+// `label` lets a screen show friendlier wording (for example "Awaiting confirmation") for the same status.
+export function StatusPill({ status, label }) {
+  return <span className={`appt-pill pill-${String(status).toLowerCase()}`}>{label || status}</span>;
 }
 
 // A select that offers only the next steps allowed for this appointment (never a free status choice).

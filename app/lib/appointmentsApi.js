@@ -14,7 +14,10 @@ export const PSYCHOLOGIST_CAN_SCHEDULE = true;
 const SELECT = "*, client:clients(id, lead_id, full_name, phone, primary_psychologist_id)";
 
 const MISSING_BACKEND = new Set(["PGRST205", "42P01", "PGRST202", "42883"]);
-const RULE_ERRORS = new Set(["P0001", "23P01", "42501", "22023", "23514"]);
+// Codes raised by the CRM's own database functions, whose messages are written for people.
+const RULE_ERRORS = new Set(["P0001", "23P01", "42501", "22023"]);
+// Raw PostgreSQL wording that must never reach the screen.
+const RAW_DB_TEXT = /violates|constraint|row-level security|relation "|column "|syntax error|permission denied for/i;
 
 export function isMissingBackend(error) {
   return Boolean(error && MISSING_BACKEND.has(error.code));
@@ -24,9 +27,16 @@ export function isMissingBackend(error) {
 export function describeAppointmentError(error, fallback = "Could not save the appointment. Please try again.") {
   if (!error) return fallback;
   if (isMissingBackend(error)) {
-    return "Appointments are not set up in the database yet. Apply migration 202611040001 in Supabase.";
+    console.error("Scheduling tables are missing (migration 202611040001):", error);
+    return "Scheduling isn't set up yet. Please contact your clinic administrator.";
   }
-  if (RULE_ERRORS.has(error.code) && error.message) return error.message;
+  if (error.code === "42501" || /row-level security|permission denied/i.test(error.message || "")) {
+    if (!RAW_DB_TEXT.test(error.message || "")) return error.message;
+    return "You don't have permission to do that. If you think you should, ask your clinic administrator.";
+  }
+  if (RULE_ERRORS.has(error.code) && error.message && !RAW_DB_TEXT.test(error.message)) return error.message;
+  if (error.code === "23P01") return "That time overlaps another booking. Please choose another time.";
+  if (error.code === "23514" || error.code === "23505") return "Some details are not valid for this change. Please check them and try again.";
   if (error.code === "PGRST301" || /jwt/i.test(error.message || "")) return "Your session has expired. Sign in again.";
   return fallback;
 }
@@ -50,7 +60,7 @@ export function mapAppointment(row) {
   };
 }
 
-// filters: { from?: Date, to?: Date, psychologistId?, clientId?, statuses?: [] }
+// filters: { from?: Date, to?: Date, psychologistId?, clientId?, statuses?: [], followUpsOnly?: boolean }
 export async function listAppointments(filters = {}) {
   const supabase = createClient();
   let query = supabase.from("appointments").select(SELECT).order("starts_at", { ascending: true });
@@ -59,6 +69,7 @@ export async function listAppointments(filters = {}) {
   if (filters.psychologistId) query = query.eq("psychologist_id", filters.psychologistId);
   if (filters.clientId) query = query.eq("client_id", filters.clientId);
   if (filters.statuses && filters.statuses.length) query = query.in("status", filters.statuses);
+  if (filters.followUpsOnly) query = query.not("recommendation_id", "is", null);
   const { data, error } = await query.limit(5000);
   if (error) throw error;
   return (data || []).map(mapAppointment);
@@ -153,8 +164,8 @@ export function appointmentActions(item, { isStaff, ownPsychologistId = null, no
 
 export const ACTION_LABELS = {
   confirm: "Record client confirmation",
-  attended: "Mark attended (completed)",
-  missed: "Mark missed",
+  attended: "Mark as completed",
+  missed: "Mark as missed",
   reschedule: "Reschedule…",
   cancel: "Cancel appointment…",
 };

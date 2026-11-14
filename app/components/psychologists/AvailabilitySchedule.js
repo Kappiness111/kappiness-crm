@@ -11,14 +11,14 @@ export default function AvailabilitySchedule({ periods, loading, error, canManag
     <section className="section" id="availability" aria-labelledby="availability-title">
       <div className="section-head">
         <div>
-          <h2 id="availability-title">Weekly availability</h2>
+          <h2 id="availability-title">Weekly working hours</h2>
           <p>
-            Recurring working hours{canManage ? "" : " (view only)"}. Bookable slots also depend on existing appointments.
+            The hours clients can be booked in, every week{canManage ? "" : " (view only)"}. A time is available unless it is already booked or blocked.
           </p>
         </div>
         {canManage && !loading && !error ? (
           <button type="button" className="btn btn-sm" onClick={() => onAdd(1)}>
-            <Icon name="plus" /> Add period
+            <Icon name="plus" /> Add working hours
           </button>
         ) : null}
       </div>
@@ -53,14 +53,14 @@ export default function AvailabilitySchedule({ periods, loading, error, canManag
                   <span className={styles.dayName}>{day.name}</span>
 
                   <div className={styles.periods}>
-                    {dayPeriods.length === 0 && <span className={styles.none}>Not available</span>}
+                    {dayPeriods.length === 0 && <span className={styles.none}>Not working</span>}
 
                     {dayPeriods.map((period) => {
                       const busy = busyIds.includes(period.id);
                       return (
                         <div key={period.id} className={`${styles.period} ${period.is_active ? "" : styles.periodOff}`}>
                           <span className="num">{formatRange(period.start_time, period.end_time)}</span>
-                          {!period.is_active && <span className="badge">Inactive</span>}
+                          {!period.is_active && <span className="badge">Turned off</span>}
                           {canManage && (
                             <span className={styles.periodActions}>
                               <button type="button" className="link-btn quiet" onClick={() => onEdit(period)}>
@@ -72,7 +72,7 @@ export default function AvailabilitySchedule({ periods, loading, error, canManag
                                 disabled={busy}
                                 onClick={() => onToggle(period)}
                               >
-                                {busy ? "Saving…" : period.is_active ? "Deactivate" : "Activate"}
+                                {busy ? "Saving…" : period.is_active ? "Turn off" : "Turn on"}
                               </button>
                             </span>
                           )}

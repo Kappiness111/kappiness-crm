@@ -1,6 +1,7 @@
 
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
+import { SupabaseConfigError, getSupabaseEnv } from './utils/supabase/env'
 
 function preserveResponseState(source, target) {
   source.headers.forEach((value, key) => {
@@ -19,9 +20,23 @@ function preserveResponseState(source, target) {
 export async function proxy(request) {
   let response = NextResponse.next({ request })
 
+  // Without the Supabase settings no page can check the session, so stop with a clear message
+  // (names of the missing variables only, never their values).
+  let env
+  try {
+    env = getSupabaseEnv()
+  } catch (error) {
+    if (!(error instanceof SupabaseConfigError)) throw error
+    console.error(error.message)
+    return new NextResponse(error.message, {
+      status: 500,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    env.url,
+    env.key,
     {
       cookies: {
         getAll() {

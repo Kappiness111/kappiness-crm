@@ -2,17 +2,35 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Icon from "../Icon";
-import { Avatar } from "../AppointmentTable";
+import { Avatar, StatusPill } from "../AppointmentTable";
+import { FollowUpStateBadge } from "../ui/StatusBadges";
+import { listRecommendations, listSessions, recommendationState } from "../../lib/sessionsApi";
+import { appointmentStatusLabel, sessionStatusLabel } from "../../lib/statusLabels";
 import { ACTIVE_APPOINTMENT_STATUSES, describeAppointmentError, listAppointments } from "../../lib/appointmentsApi";
 import { listClients } from "../../lib/clientsApi";
 import { formatDate, formatTime } from "../../lib/leads";
 
+// Next follow-up for a client: recommended (with its date) or already booked.
+function FollowUpCell({ followUp }) {
+  if (!followUp) return <span className="muted">—</span>;
+  if (followUp.status === "Scheduled") return <FollowUpStateBadge state="confirmed" />;
+  return (
+    <>
+      <FollowUpStateBadge state={recommendationState(followUp) === "overdue" ? "overdue" : "open"} />
+      <small className="muted block">For {formatDate(followUp.recommended_date)}</small>
+    </>
+  );
+}
+
 /* Client list for staff (all clients) and psychologists (own clients: psychologistId set, RLS enforces it).
+   psychologistView shows what a psychologist needs at a glance: last session, next appointment and follow-up.
    onOpen(client) opens the client profile. */
-export default function ClientList({ psychologistId = null, psychologistNames = {}, showPsychologist = true, onOpen }) {
+export default function ClientList({ psychologistId = null, psychologistNames = {}, showPsychologist = true, psychologistView = false, onOpen }) {
   const [state, setState] = useState({ status: "loading", message: "" });
   const [clients, setClients] = useState([]);
   const [nextByClient, setNextByClient] = useState({});
+  const [lastSessionByClient, setLastSessionByClient] = useState({});
+  const [followUpByClient, setFollowUpByClient] = useState({});
   const [search, setSearch] = useState("");
   const [psychologistFilter, setPsychologistFilter] = useState("all");
   const [reload, setReload] = useState(0);
@@ -22,17 +40,30 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
     async function load() {
       try {
         const from = new Date();
-        const [rows, upcoming] = await Promise.all([
+        const [rows, upcoming, sessions, recs] = await Promise.all([
           listClients({ psychologistId }),
           listAppointments({ from, statuses: ACTIVE_APPOINTMENT_STATUSES, psychologistId }),
+          psychologistView ? listSessions({ psychologistId, to: from }) : Promise.resolve([]),
+          listRecommendations({ psychologistId, statuses: ["Open", "Scheduled"] }),
         ]);
         if (cancelled) return;
         const next = {};
         upcoming.forEach((item) => {
           if (!next[item.client_id]) next[item.client_id] = item;
         });
+        // Sessions come newest first: the first past one per client is their last session.
+        const last = {};
+        sessions.forEach((item) => {
+          if (item.status !== "Scheduled" && !last[item.client_id]) last[item.client_id] = item;
+        });
+        const followUps = {};
+        recs.forEach((rec) => {
+          if (!followUps[rec.client_id]) followUps[rec.client_id] = rec;
+        });
         setClients(rows);
         setNextByClient(next);
+        setLastSessionByClient(last);
+        setFollowUpByClient(followUps);
         setState({ status: "ready", message: "" });
       } catch (error) {
         console.error("Failed to load clients:", error);
@@ -43,7 +74,7 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
     return () => {
       cancelled = true;
     };
-  }, [psychologistId, reload]);
+  }, [psychologistId, psychologistView, reload]);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -62,7 +93,7 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
     return (
       <div className="panel">
         <div className="state" aria-busy="true">
-          <strong>Loading clients…</strong>
+          <strong>{psychologistView ? "Loading your clients…" : "Loading clients…"}</strong>
         </div>
       </div>
     );
@@ -108,12 +139,77 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
         {rows.length === 0 ? (
           <div className="state">
             <Icon name="users" />
-            <strong>{clients.length === 0 ? "No clients yet" : "No matching clients"}</strong>
+            <strong>{clients.length === 0 ? (psychologistView ? "You don't have any clients yet" : "No clients yet") : "No matching clients"}</strong>
             <span>
               {clients.length === 0
-                ? "A client profile is created when a lead is set to Confirmed with a psychologist."
+                ? psychologistView
+                  ? "Clients appear here once the clinic team assigns them to you."
+                  : "A client profile is created when a lead is set to Confirmed with a psychologist."
                 : "Try another search or filter."}
             </span>
+          </div>
+        ) : psychologistView ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Client</th>
+                  <th scope="col">Last session</th>
+                  <th scope="col">Next appointment</th>
+                  <th scope="col">Follow-up</th>
+                  <th scope="col" className="right">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((client) => {
+                  const next = nextByClient[client.id];
+                  const last = lastSessionByClient[client.id];
+                  const followUp = followUpByClient[client.id];
+                  return (
+                    <tr key={client.id}>
+                      <td>
+                        <span className="person">
+                          <Avatar name={client.full_name} />
+                          <span>
+                            <strong>{client.full_name}</strong>
+                            <small className="muted">{client.service_interest || client.city || ""}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        {last ? (
+                          <>
+                            {formatDate(last.starts_at)} <StatusPill status={last.status} label={sessionStatusLabel(last.status)} />
+                          </>
+                        ) : (
+                          <span className="muted">No sessions yet</span>
+                        )}
+                      </td>
+                      <td>
+                        {next ? (
+                          <>
+                            {formatDate(next.starts_at)}, {formatTime(next.starts_at)}
+                            <small className="muted block">{appointmentStatusLabel(next.status)}</small>
+                          </>
+                        ) : (
+                          <span className="muted">Nothing booked</span>
+                        )}
+                      </td>
+                      <td>
+                        <FollowUpCell followUp={followUp} />
+                      </td>
+                      <td className="right">
+                        <button type="button" className="appt-btn" onClick={() => onOpen(client)}>
+                          View client profile
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div className="table-wrap">
@@ -125,6 +221,7 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
                   {showPsychologist && <th scope="col">Psychologist</th>}
                   <th scope="col">Service</th>
                   <th scope="col">Next appointment</th>
+                  <th scope="col">Follow-up</th>
                 </tr>
               </thead>
               <tbody>
@@ -153,6 +250,9 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
                         ) : (
                           <span className="muted">None booked</span>
                         )}
+                      </td>
+                      <td>
+                        <FollowUpCell followUp={followUpByClient[client.id]} />
                       </td>
                     </tr>
                   );

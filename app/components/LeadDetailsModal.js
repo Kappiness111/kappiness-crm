@@ -19,6 +19,7 @@ import {
   SOURCES,
   buildLostReason,
   canMoveStatus,
+  confirmPathHint,
   statusOptions,
   dueLabel,
   formatDate,
@@ -326,6 +327,27 @@ function InfoItem({ label, children, wide = false }) {
       <span>{label}</span>
       <strong>{children}</strong>
     </div>
+  );
+}
+
+// Status menu: the active statuses the lead may move to, with Lost kept apart as a way to close the lead.
+function StatusOptions({ current }) {
+  const options = statusOptions(current);
+  const active = options.filter((status) => status !== LOST_STATUS);
+  const canClose = options.includes(LOST_STATUS);
+  return (
+    <>
+      {active.map((status) => (
+        <option key={status} value={status}>
+          {status}
+        </option>
+      ))}
+      {canClose && (
+        <optgroup label="Close the lead">
+          <option value={LOST_STATUS}>{current === LOST_STATUS ? "Lost (closed)" : "Lost: not going ahead"}</option>
+        </optgroup>
+      )}
+    </>
   );
 }
 
@@ -799,17 +821,14 @@ export default function LeadDetailsModal({
                     aria-describedby={statusError ? "overview-status-error" : undefined}
                     onChange={(event) => changeStatus(event.target.value)}
                   >
-                    {statusOptions(lead.status).map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
+                    <StatusOptions current={lead.status} />
                   </select>
                 </Field>
                 {!canUpdateStatus && <p className="subtle-text">Your role cannot change lead statuses.</p>}
                 {canUpdateStatus && statusOptions(lead.status).length <= 1 && (
                   <p className="subtle-text">{lead.status} is a final status.</p>
                 )}
+                {canUpdateStatus && confirmPathHint(lead.status) && <p className="subtle-text">{confirmPathHint(lead.status)}</p>}
 
                 {lostPrompt && (
                   <form className="lost-prompt" noValidate onSubmit={confirmLost} aria-label="Mark lead as lost">
@@ -1237,16 +1256,14 @@ export default function LeadDetailsModal({
               </div>
 
               <div className="field-grid">
-                <Field id="edit-status" label="Status">
+                <Field id="edit-status" label="Status" hint={canUpdateStatus ? confirmPathHint(lead.status) || undefined : undefined}>
                   <select
                     {...props("status")}
                     value={draft.status}
                     disabled={!canUpdateStatus || statusOptions(lead.status).length <= 1}
                     onChange={onChange("status")}
                   >
-                    {statusOptions(lead.status).map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
+                    <StatusOptions current={lead.status} />
                   </select>
                 </Field>
 

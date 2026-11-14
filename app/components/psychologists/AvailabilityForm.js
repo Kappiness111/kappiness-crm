@@ -39,8 +39,8 @@ export default function AvailabilityForm({ period, defaultDay = 1, existingPerio
   return (
     <Dialog
       titleId="availability-form-title"
-      title={editing ? "Edit availability" : "Add availability"}
-      subtitle="Recurring weekly working hours. This does not create bookable appointment slots."
+      title={editing ? "Edit working hours" : "Add working hours"}
+      subtitle="Hours you work on this day every week. Add a second period for the same day if you take a break."
       onClose={onClose}
       busy={saving}
       small
@@ -48,7 +48,7 @@ export default function AvailabilityForm({ period, defaultDay = 1, existingPerio
         <>
           <button type="button" className="btn" onClick={onClose} disabled={saving}>Cancel</button>
           <button type="submit" form="availability-form" className="btn btn-primary" disabled={saving}>
-            {saving ? "Saving..." : editing ? "Save changes" : "Add availability"}
+            {saving ? "Saving..." : editing ? "Save changes" : "Add working hours"}
           </button>
         </>
       }
@@ -103,8 +103,8 @@ export default function AvailabilityForm({ period, defaultDay = 1, existingPerio
             onChange={(event) => setDraft((current) => ({ ...current, is_active: event.target.checked }))}
           />
           <div>
-            <strong>Active</strong>
-            <span>Inactive periods are kept on record but not treated as working hours.</span>
+            <strong>Use these hours for bookings</strong>
+            <span>Turn this off to keep the hours on record without offering them for appointments.</span>
           </div>
         </label>
       </form>

@@ -7,6 +7,7 @@ import useAppointmentWorkflow from "../scheduling/useAppointmentWorkflow";
 import { ACTIVE_APPOINTMENT_STATUSES, describeAppointmentError, listAppointmentHistory, listAppointments } from "../../lib/appointmentsApi";
 import { assignClientPsychologist, getClient, listLeadActivities } from "../../lib/clientsApi";
 import { formatDate, formatDateTime, formatTime } from "../../lib/leads";
+import { appointmentStatusLabel, sessionStatusLabel } from "../../lib/statusLabels";
 import { listRecommendations, listSessionNotes, listSessions, recommendationState } from "../../lib/sessionsApi";
 
 /* Client profile: personal and contact details, assigned psychologist, service, appointments (upcoming and
@@ -93,7 +94,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
       <div className="state" role={state.status === "error" ? "alert" : "status"}>
         <Icon name={state.status === "error" ? "alert" : "info"} />
         <strong>{state.status === "missing" ? "Client not found" : "Could not load this client"}</strong>
-        <span>{state.status === "missing" ? "It does not exist, or it is not assigned to you." : state.message}</span>
+        <span>{state.status === "missing" ? "This client may not exist, or they are not assigned to you." : state.message}</span>
         <div style={{ display: "flex", gap: 8 }}>
           {state.status === "error" && (
             <button type="button" className="btn" onClick={refresh}>
@@ -190,7 +191,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
             {info("Primary psychologist", names[client.primary_psychologist_id] || "Assigned")}
             {info("Sessions completed", String(sessions.filter((item) => item.status === "Completed").length))}
             {info("Upcoming appointments", String(upcoming.length))}
-            {info("Open recommendations", String(recommendations.filter((item) => item.status === "Open").length))}
+            {info("Follow-ups recommended", String(recommendations.filter((item) => item.status === "Open").length))}
           </dl>
           {viewer.isStaff && (
             <div className="field" style={{ marginTop: 14 }}>
@@ -245,7 +246,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
             <h2>
               Appointment history <span className="muted num">{past.length}</span>
             </h2>
-            <p>Every booking is kept, including cancelled and rescheduled ones, with each status change.</p>
+            <p>Every appointment is kept here, including cancelled and rescheduled ones, with who changed it and when.</p>
           </div>
         </div>
         <div className="panel">
@@ -272,7 +273,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
                       <td>{item.service_type}</td>
                       <td>{names[item.psychologist_id] || "—"}</td>
                       <td>
-                        <StatusPill status={item.status} />
+                        <StatusPill status={item.status} label={appointmentStatusLabel(item.status)} />
                         <AppointmentActionsInline item={item} workflow={workflow} />
                       </td>
                       <td className="wrap">
@@ -301,7 +302,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
             <h2>
               Session history <span className="muted num">{sessions.length}</span>
             </h2>
-            <p>Clinical notes are visible only to the session&apos;s psychologist and administrators.</p>
+            <p>Clinical notes are private: only the psychologist who held the session and clinic administrators can read them.</p>
           </div>
         </div>
         <div className="panel">
@@ -316,8 +317,8 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
                     <th scope="col">Type</th>
                     <th scope="col">Psychologist</th>
                     <th scope="col">Status</th>
-                    <th scope="col">Outcome</th>
-                    <th scope="col">Notes</th>
+                    <th scope="col">Session summary</th>
+                    <th scope="col">Clinical notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -329,7 +330,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
                       <td>{item.session_type}</td>
                       <td>{names[item.psychologist_id] || "—"}</td>
                       <td>
-                        <StatusPill status={item.status} />
+                        <StatusPill status={item.status} label={sessionStatusLabel(item.status)} />
                       </td>
                       <td className="wrap">{item.outcome || <span className="muted">—</span>}</td>
                       <td className="wrap">{notes[item.id] ? notes[item.id].notes : <span className="muted">—</span>}</td>
@@ -373,7 +374,7 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
                     {rec.status === "Open" && canBook && (
                       <div>
                         <button type="button" className="appt-btn dark" onClick={() => workflow.openBooking(client, rec)}>
-                          Book this follow-up
+                          Schedule this follow-up
                         </button>
                       </div>
                     )}
@@ -429,12 +430,12 @@ function AppointmentActionsInline({ item, workflow }) {
     <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
       {actions.includes("attended") && (
         <button type="button" className="appt-btn dark" disabled={workflow.busyId === item.id} onClick={() => workflow.runAction(item, "attended")}>
-          Attended
+          Mark as completed
         </button>
       )}
       {actions.includes("missed") && (
         <button type="button" className="appt-btn" disabled={workflow.busyId === item.id} onClick={() => workflow.runAction(item, "missed")}>
-          Missed
+          Mark as missed
         </button>
       )}
     </div>
