@@ -1,5 +1,5 @@
 -- Kappiness CRM: access tests for appointments, sessions, clinical notes, recommendations,
--- blocked periods and psychologist availability (202611040001 + 202611040003 + 202611040005).
+-- blocked periods and psychologist availability (202611040001 + 202611130001, which superseded 202611040003/05).
 -- Owner: Aswathy (backend / security).
 --
 -- RUN ONLY ON A DISPOSABLE DATABASE (fresh local stack or Supabase branch). NEVER ON THE LIVE PROJECT.
@@ -12,7 +12,7 @@
 --
 -- PRECONDITIONS
 --   A copy of the live schema (including the five live psychologist_availability policies and the live
---   leads / lead_activities policies) with supabase/deploy/202611040005_atomic_bundle.sql applied.
+--   leads / lead_activities policies) with the production path in supabase/test-bootstrap/README.md applied.
 --
 -- IDENTITIES
 --   ...01 non-member (signed in)            ...02 non-member with JWT app_metadata.role = admin
@@ -39,7 +39,7 @@ END
 $$;
 
 /* ---------------------------------------------------------------------------------------------
-   Catalog checks for 202611040005
+   Catalog checks for the availability lockdown (202611130001; formerly 202611040005)
    --------------------------------------------------------------------------------------------- */
 DO $$
 BEGIN

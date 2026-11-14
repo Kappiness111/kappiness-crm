@@ -1,44 +1,26 @@
 #!/usr/bin/env node
 /*
-  Kappiness CRM: builds ONE atomic deployment file from several migrations.
+  Kappiness CRM: SQL scanner library. (Former bundle builder; the bundle function was retired 13 Nov 2026.)
   Owner: Aswathy (backend / security).
 
-  WHY
-    202611040001 must never be committed without 202611040003 (insecure role helpers), and 202611030002
-    must never be committed without 202611040001 + 202611040004 (weaker lead workflow). Each migration ends
-    with its own COMMIT, so they cannot simply be run one after another. This script removes each file's
-    exact outer "BEGIN;" / "COMMIT;" lines and wraps everything in a single BEGIN/COMMIT.
+  PURPOSE
+    This file is kept ONLY for its two SQL scanner exports, which scripts/build-production-deploy.mjs imports:
+      scanSql(text)               split SQL into top-level statements and dollar-quoted bodies
+      unwrapMigration(name, raw)  validate and strip a migration's single outer BEGIN; / COMMIT;
+    Both are unchanged from the original builder.
 
-  SAFETY
-    * Never executes SQL and never connects to any database. It only reads files and writes one file.
-    * Source migrations are read-only inputs; they are never modified.
-    * Output is deterministic: same inputs -> byte-identical output (LF line endings, no timestamps).
-    * Fails (exit code 1) on anything unexpected: a missing file, not exactly one outer BEGIN/COMMIT,
-      SQL outside the wrapper, or any transaction-control / non-transactional statement inside a file.
+  WHAT IT NO LONGER DOES
+    It does not build, check, validate or regenerate any bundle, and has no options. The 202611040005 atomic
+    bundle it used to produce is retired: it is kept only as a record in supabase/deploy/retired/ (where it aborts
+    if run) and must never be run. Reasons: supabase/migrations_superseded/README.md.
 
-  USAGE
-    node scripts/build-deploy-bundle.mjs              build supabase/deploy/202611040005_atomic_bundle.sql
-    node scripts/build-deploy-bundle.mjs --check      verify the existing output is up to date (no writes)
-    node scripts/build-deploy-bundle.mjs --validate   validate the source migrations only (no writes)
+  RUNNING THIS FILE
+    Running it directly does nothing except print a short notice and exit with code 1. For the production
+    deployment package, use scripts/build-production-deploy.mjs.
 */
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRATIONS_DIR = join(ROOT, "supabase", "migrations");
-const OUTPUT = join(ROOT, "supabase", "deploy", "202611040005_atomic_bundle.sql");
-
-// Order matters: each file's prerequisite checks expect the previous ones in the same transaction.
-export const SOURCES = [
-  "202611030002_lead_status_lost_and_psychologist.sql",
-  "202611040001_clients_appointments_sessions.sql",
-  "202611040003_role_helpers_use_staff_membership.sql",
-  "202611040004_preserve_live_lead_function.sql",
-  "202611040005_psychologist_availability_security.sql",
-];
 
 /* ------------------------------------------------------------------------------------------------
    SQL scanner: splits text into top-level statements, skipping comments, quoted strings, quoted
@@ -249,138 +231,16 @@ export function unwrapMigration(name, raw) {
   };
 }
 
-const sha256 = (value) => createHash("sha256").update(value).digest("hex");
-// Source fingerprint independent of checkout line endings (core.autocrlf), so --check agrees on every machine.
-const normalizedSha256 = (raw) => sha256(raw.replace(/^﻿/, "").replace(/\r\n?/g, "\n"));
-
-export function buildBundle(sources) {
-  const parts = [];
-  const report = [];
-  const failures = [];
-
-  for (const { name, raw } of sources) {
-    const result = unwrapMigration(name, raw);
-    if (result.problems.length) {
-      failures.push(...result.problems.map((problem) => `${name}: ${problem}`));
-      continue;
-    }
-    report.push({
-      name,
-      sha256: normalizedSha256(raw),
-      beginLine: result.beginLine,
-      commitLine: result.commitLine,
-      statements: result.statementCount,
-      bodies: result.bodyCount,
-    });
-    parts.push(
-      `-- =====================================================================================\n` +
-        `-- BEGIN ${name}  (outer BEGIN; at line ${result.beginLine} and COMMIT; at line ${result.commitLine} removed)\n` +
-        `-- =====================================================================================\n` +
-        `${result.body}\n` +
-        `-- END ${name}\n`
-    );
-  }
-  if (failures.length) return { failures, report };
-
-  const header = [
-    "-- Kappiness CRM: ATOMIC DEPLOYMENT BUNDLE. GENERATED FILE: DO NOT EDIT.",
-    "-- Regenerate with: node scripts/build-deploy-bundle.mjs   (verify with --check)",
-    "--",
-    "-- Everything below runs in ONE transaction. Any error rolls back every part, so the insecure role",
-    "-- helpers of 202611040001 and the weaker lead function of 202611030002 are never committed.",
-    "-- Run with psql -v ON_ERROR_STOP=1 (or the Supabase SQL editor) ONLY after the reviewed prerequisites.",
-    "--",
-    "-- Sources (sha256 of each file with LF line endings):",
-    ...report.map((item) => `--   ${item.name}  ${item.sha256}`),
-    "",
-  ].join("\n");
-
-  const bundle = `${header}\nBEGIN;\n\n${parts.join("\n")}\nCOMMIT;\n`;
-
-  // Validate the result: exactly one top-level BEGIN and one top-level COMMIT, first and last.
-  const scan = scanSql(bundle);
-  const control = scan.statements.filter((statement) => /^(BEGIN|START\s+TRANSACTION|COMMIT|END|ROLLBACK|ABORT|SAVEPOINT|RELEASE)\b/i.test(statement.text));
-  if (scan.errors.length) failures.push(...scan.errors.map((error) => `bundle: ${error}`));
-  if (
-    control.length !== 2 ||
-    control[0].text !== "BEGIN" ||
-    control[1].text !== "COMMIT" ||
-    scan.statements[0].text !== "BEGIN" ||
-    scan.statements[scan.statements.length - 1].text !== "COMMIT"
-  ) {
-    failures.push("bundle: expected exactly one BEGIN (first statement) and one COMMIT (last statement)");
-  }
-  return { failures, report, bundle, statementCount: scan.statements.length };
-}
-
-function loadSources() {
-  const missing = SOURCES.filter((name) => !existsSync(join(MIGRATIONS_DIR, name)));
-  const present = SOURCES.filter((name) => !missing.includes(name)).map((name) => ({
-    name,
-    raw: readFileSync(join(MIGRATIONS_DIR, name), "utf8"),
-  }));
-  return { missing, present };
-}
-
 function main() {
-  const mode = process.argv[2] || "--build";
-  if (!["--build", "--check", "--validate"].includes(mode)) {
-    console.error(`Unknown option ${mode}. Use --check or --validate, or no option to build.`);
-    process.exit(2);
-  }
-
-  const { missing, present } = loadSources();
-
-  if (mode === "--validate") {
-    let ok = missing.length === 0;
-    missing.forEach((name) => console.error(`MISSING  ${name}`));
-    present.forEach(({ name, raw }) => {
-      const result = unwrapMigration(name, raw);
-      if (result.problems.length) {
-        ok = false;
-        result.problems.forEach((problem) => console.error(`FAIL     ${name}: ${problem}`));
-      } else {
-        console.log(
-          `OK       ${name}: BEGIN; line ${result.beginLine}, COMMIT; line ${result.commitLine}, ` +
-            `${result.statementCount} statements, ${result.bodyCount} dollar-quoted bodies, ` +
-            `${/\r\n/.test(raw) ? "CRLF" : "LF"}, sha256(LF) ${normalizedSha256(raw).slice(0, 12)}`
-        );
-      }
-    });
-    console.log(ok ? "Validation passed." : "Validation FAILED.");
-    process.exit(ok ? 0 : 1);
-  }
-
-  if (missing.length) {
-    missing.forEach((name) => console.error(`MISSING  ${name}`));
-    console.error("Refusing to build a partial bundle: every migration in SOURCES is required.");
-    process.exit(1);
-  }
-
-  const result = buildBundle(present);
-  if (result.failures.length) {
-    result.failures.forEach((failure) => console.error(`FAIL     ${failure}`));
-    console.error("Bundle NOT written.");
-    process.exit(1);
-  }
-
-  const target = relative(ROOT, OUTPUT);
-  if (mode === "--check") {
-    const existing = existsSync(OUTPUT) ? readFileSync(OUTPUT, "utf8") : null;
-    if (existing !== result.bundle) {
-      console.error(`${target} is missing or out of date. Run: node scripts/build-deploy-bundle.mjs`);
-      process.exit(1);
-    }
-    console.log(`${target} is up to date (sha256 ${sha256(result.bundle)}).`);
-    return;
-  }
-
-  mkdirSync(dirname(OUTPUT), { recursive: true });
-  writeFileSync(OUTPUT, result.bundle, "utf8");
-  result.report.forEach((item) =>
-    console.log(`OK       ${item.name}: ${item.statements} statements, ${item.bodies} dollar-quoted bodies`)
+  console.error(
+    [
+      "scripts/build-deploy-bundle.mjs is a library: it only exports scanSql / unwrapMigration and has nothing to run.",
+      "  The 202611040005 atomic bundle is retired (supabase/deploy/retired/, aborts if run); there is no way to rebuild it.",
+      "  Reasons: supabase/migrations_superseded/README.md",
+      "  Production deployment package: scripts/build-production-deploy.mjs",
+    ].join("\n")
   );
-  console.log(`Wrote ${target}: ${result.statementCount} top-level statements, sha256 ${sha256(result.bundle)}`);
+  process.exit(1);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
