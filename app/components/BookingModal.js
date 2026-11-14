@@ -7,7 +7,7 @@ import ModalShell from "./ModalShell";
 import MonthGrid from "./MonthGrid";
 import { NOTES_LIMIT, formatDateTime } from "../lib/leads";
 import { dayHasFreeSlot, periodsFor, slotsForDay } from "../lib/appointmentSlots";
-import { formatClock, startOfDay } from "../lib/calendar";
+import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
 
 /* Book a new appointment or reschedule an existing one.
    - Booking needs an existing client, a psychologist, a service and a free slot.
@@ -21,6 +21,7 @@ export default function BookingModal({
   lockedClient = null, // booking for a known client: the client is fixed
   appointment = null, // the appointment being rescheduled
   recommendation = null, // booking from a follow-up recommendation
+  preset = null, // { psychologistId, serviceId, day, slotStart } when opened from a schedule slot
   psychologists = [], // psychologists this user may schedule for
   services = [], // active services
   availability = [],
@@ -45,12 +46,14 @@ export default function BookingModal({
     const canUse = (id) => id && psychologists.some((item) => String(item.id) === String(id));
     if (reschedule && canUse(appointment.psychologist_id)) return String(appointment.psychologist_id);
     if (recommendation && canUse(recommendation.psychologist_id)) return String(recommendation.psychologist_id);
+    if (preset && canUse(preset.psychologistId)) return String(preset.psychologistId);
     const primary = (lockedClient || {}).primary_psychologist_id;
     if (canUse(primary)) return String(primary);
     return psychologists.length === 1 ? String(psychologists[0].id) : "";
   });
   const [serviceId, setServiceId] = useState(() => {
     if (reschedule && appointment.service_id) return String(appointment.service_id);
+    if (preset && preset.serviceId && services.some((item) => String(item.id) === String(preset.serviceId))) return String(preset.serviceId);
     const interest = client && client.service_interest;
     const match = interest && services.find((item) => item.name === interest);
     if (match) return String(match.id);
@@ -60,10 +63,12 @@ export default function BookingModal({
     let base = today;
     if (reschedule) base = new Date(appointment.starts_at);
     else if (recommendation) base = new Date(`${recommendation.recommended_date}T00:00`);
+    else if (preset && preset.day) base = preset.day;
     return new Date(base.getFullYear(), base.getMonth(), 1);
   });
-  const [day, setDay] = useState(null);
-  const [slotStart, setSlotStart] = useState(null); // ISO string
+  const [day, setDay] = useState(() => (preset && preset.day ? startOfDay(preset.day) : null));
+  const [slotStart, setSlotStart] = useState(() => (preset && preset.slotStart ? new Date(preset.slotStart).toISOString() : null)); // ISO string
+  const [clientQuery, setClientQuery] = useState("");
   const [notes, setNotes] = useState(reschedule ? appointment.notes || "" : "");
   const [reason, setReason] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -99,10 +104,24 @@ export default function BookingModal({
   if (notes.length > NOTES_LIMIT) errors.notes = `Keep notes under ${NOTES_LIMIT} characters.`;
   const visible = (field) => (submitted ? errors[field] : undefined);
 
+  // A date can be opened when it is today or later and the psychologist works that weekday, even if every time is
+  // taken or has passed: the slot list then says why, instead of the date silently being greyed out.
   function getMeta(date) {
     const before = date.getTime() < today.getTime();
+    const works = periods.some((period) => Number(period.day_of_week) === isoWeekday(date));
     const free = !before && ready ? dayHasFreeSlot(periods, date, appointments, slotOptions) : false;
-    return { available: free, disabled: !free };
+    return { available: free, disabled: before || !ready || !works };
+  }
+
+  // Why the chosen day has no bookable time (only used when none is free).
+  function noSlotReason() {
+    if (slots.length === 0) {
+      return `The working hours on this day are too short for a ${durationMinutes}-minute session.`;
+    }
+    if (slots.every((slot) => slot.past)) return "All of today's times have passed. Please choose another date.";
+    if (slots.every((slot) => slot.blocked || slot.past)) return "The psychologist is unavailable (blocked) for the rest of this day.";
+    if (slots.every((slot) => slot.taken || slot.past || slot.blocked)) return "Every time on this day is already booked.";
+    return "";
   }
 
   function resetSlot() {
@@ -143,6 +162,13 @@ export default function BookingModal({
     onClose();
   }
 
+  // Review of what will be saved, shown once a time is picked.
+  const chosenSlot = slotStart ? slots.find((slot) => slot.start.toISOString() === slotStart) : null;
+  const psychologistName = (psychologists.find((item) => String(item.id) === psychologistId) || {}).name || "";
+  const clientName = client ? client.full_name : appointment ? appointment.client_name : "";
+  const when = (start, end) =>
+    `${start.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}, ${formatClock(start)} – ${formatClock(end)}`;
+
   const title = reschedule ? "Reschedule appointment" : recommendation ? "Book recommended follow-up" : "Book appointment";
 
   return (
@@ -153,7 +179,7 @@ export default function BookingModal({
           <p>
             {reschedule
               ? "The original appointment is kept as Rescheduled and a new one is booked."
-              : "Choose a client, a psychologist, a service and a free slot. New bookings start as Scheduled."}
+              : "Choose a client, a psychologist, a service and a free time. New bookings wait for the client's confirmation."}
           </p>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close" disabled={saving}>
@@ -187,15 +213,33 @@ export default function BookingModal({
               {lockedClient || reschedule || recommendation ? (
                 <input id="booking-client" value={client ? client.full_name : appointment ? appointment.client_name : ""} readOnly />
               ) : (
+                <>
+                {clients.length > 8 && (
+                  <input
+                    type="search"
+                    className="client-search"
+                    placeholder="Search clients by name or phone"
+                    aria-label="Search clients"
+                    value={clientQuery}
+                    onChange={(event) => setClientQuery(event.target.value)}
+                  />
+                )}
                 <select {...fieldProps("booking-client", visible("client"))} value={clientId} onChange={(event) => setClientId(event.target.value)}>
                   <option value="">{clients.length ? "Select a client" : "No clients yet: confirm a lead first"}</option>
-                  {clients.map((item) => (
+                  {clients
+                    .filter((item) => {
+                      const term = clientQuery.trim().toLowerCase();
+                      if (!term || String(item.id) === clientId) return true;
+                      return (item.full_name || "").toLowerCase().includes(term) || (item.phone || "").replace(/s+/g, "").includes(term.replace(/s+/g, ""));
+                    })
+                    .map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.full_name}
                       {item.phone ? ` · ${item.phone}` : ""}
                     </option>
                   ))}
                 </select>
+                </>
               )}
             </Field>
 
@@ -225,7 +269,7 @@ export default function BookingModal({
                   value={serviceId}
                   onChange={(event) => {
                     setServiceId(event.target.value);
-                    resetSlot();
+                    setSlotStart(null); // keep the chosen date; times depend on the service length
                   }}
                 >
                   <option value="">{services.length ? "Select a service" : "No active services configured"}</option>
@@ -263,7 +307,11 @@ export default function BookingModal({
 
               {!ready && <p className="subtle-text">Choose a psychologist{reschedule ? "" : " and a service"} to see available dates.</p>}
               {ready && !day && <p className="subtle-text">Pick a highlighted date to see its time slots.</p>}
-              {day && slots.length === 0 && <p className="subtle-text">No slots on this day.</p>}
+              {day && !slots.some((slot) => slot.free) && (
+                <p className="subtle-text" role="status">
+                  {noSlotReason()}
+                </p>
+              )}
 
               <div className="slot-grid" role="radiogroup" aria-label="Time slots">
                 {slots.map((slot) => {
@@ -313,6 +361,44 @@ export default function BookingModal({
             >
               <textarea {...fieldProps("booking-notes", visible("notes"), "notes")} rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
             </Field>
+          )}
+
+          {chosenSlot && (
+            <div className="booking-review" role="status" aria-live="polite">
+              <strong>{reschedule ? "Please check the new time" : "Please check before booking"}</strong>
+              <dl>
+                <dt>Client</dt>
+                <dd>{clientName || "—"}</dd>
+                <dt>Psychologist</dt>
+                <dd>{psychologistName || "—"}</dd>
+                {!reschedule && service ? (
+                  <>
+                    <dt>Service</dt>
+                    <dd>
+                      {service.name} ({service.duration_minutes} min)
+                    </dd>
+                  </>
+                ) : null}
+                {reschedule ? (
+                  <>
+                    <dt>Current time</dt>
+                    <dd>
+                      <s>{when(new Date(appointment.starts_at), new Date(appointment.ends_at))}</s> <span className="muted">(will be freed)</span>
+                    </dd>
+                  </>
+                ) : null}
+                <dt>{reschedule ? "New time" : "Time"}</dt>
+                <dd>
+                  <strong>{when(chosenSlot.start, chosenSlot.end)}</strong>
+                </dd>
+              </dl>
+              <small className="muted">
+                {reschedule
+                  ? "The original appointment is kept in the history as Rescheduled."
+                  : "The appointment starts as awaiting client confirmation."}{" "}
+                The time is checked again when you save.
+              </small>
+            </div>
           )}
 
           {error && (

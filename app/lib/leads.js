@@ -27,6 +27,13 @@ export function statusOptions(current) {
   return STATUSES.filter((status) => status === current || next.includes(status));
 }
 
+// Explains how an open lead reaches Confirmed when it cannot move there directly (only Will Inform can).
+export function confirmPathHint(current) {
+  if (current === "Enquiry") return "To confirm: move to Yet to Confirm, then Will Inform, then Confirmed.";
+  if (current === "Yet to Confirm") return "To confirm: move to Will Inform first, then Confirmed.";
+  return "";
+}
+
 export function canMoveStatus(from, to) {
   return from === to || (STATUS_TRANSITIONS[from] || []).includes(to);
 }
@@ -82,16 +89,18 @@ export function describeLeadError(error, fallback = "Could not save your changes
   const code = error && error.code;
   const text = `${(error && error.message) || ""} ${(error && error.details) || ""}`;
   if (code === "23514" && /leads_status_check/.test(text)) {
-    return "Supabase rejected this lead status (leads_status_check). The database status list needs the update in supabase/migrations/202611030002_lead_status_lost_and_psychologist.sql. Please ask the backend team to apply it.";
+    console.error("leads_status_check rejected the status; migration 202611030002 may be missing:", error);
+    return "This status can't be saved yet because the database needs an update. Please let your administrator know.";
   }
-  if (code === "23514") return "Supabase rejected one of these values because of a database rule. Please check the form and try again.";
+  if (code === "23514") return "One of these values isn't allowed. Please check the form and try again.";
   if (code === "23503") return "The selected psychologist no longer exists. Refresh the page and choose again.";
   if (code === "23502") return "A required field is missing. Please fill in every required field.";
   if (code === "23505") return "A lead with these details already exists.";
   if (code === "42501") return "You do not have permission to save this change. Please ask your administrator to check access.";
-  if (code === "PGRST116") return "Supabase did not update this lead. It may no longer exist, or you may not have permission to edit it.";
+  if (code === "PGRST116") return "This lead wasn't updated. It may have been removed, or you may not have permission to edit it.";
   if (code === "PGRST204" || code === "42703") {
-    return "The leads table is missing a column this change needs. Please ask the backend team to apply the latest migration.";
+    console.error("The leads table is missing a column this change needs:", error);
+    return "This change can't be saved yet because the database needs an update. Please let your administrator know.";
   }
   // Raised on purpose by update_lead_with_history with a message written for staff.
   if ((code === "P0001" || code === "22023") && error.message) return error.message;

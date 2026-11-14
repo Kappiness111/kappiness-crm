@@ -123,6 +123,8 @@ export default function AddLeadModal({
   // If the account name arrives after the form opened, fill it in (only while the field is still empty).
   useEffect(() => {
     if (!currentStaffName) return;
+    // Intentional one-way sync from a prop that can arrive after mount; it only fills an empty field.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValues((current) => (current.assigned_staff ? current : { ...current, assigned_staff: currentStaffName }));
   }, [currentStaffName]);
 

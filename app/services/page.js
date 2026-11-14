@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Dialog from "../components/Dialog";
 import Icon from "../components/Icon";
+import PsychologistsTabs from "../components/psychologists/PsychologistsTabs";
 import PsychologistShell from "../components/psychologists/PsychologistShell";
 import Toast from "../components/Toast";
 import useStaffContext from "../components/scheduling/useStaffContext";
@@ -36,7 +37,8 @@ function ServicesView() {
   }, [reload]);
 
   return (
-    <PsychologistShell activeId="Services" crumbs={[{ label: "Services" }]}>
+    <PsychologistShell activeId="Psychologists" crumbs={[{ label: "Psychologists", href: "/psychologists" }, { label: "Services" }]}>
+      <PsychologistsTabs active="services" />
       <header className="page-head">
         <div>
           <h1>Services</h1>

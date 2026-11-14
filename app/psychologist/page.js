@@ -15,13 +15,13 @@ import ClientDetails from "../components/clients/ClientDetails";
 import ClientList from "../components/clients/ClientList";
 import AvailabilityManager from "../components/scheduling/AvailabilityManager";
 import useAppointmentWorkflow from "../components/scheduling/useAppointmentWorkflow";
-import RecommendationsPanel from "../components/sessions/RecommendationsPanel";
+import FollowUpSessionsPanel from "../components/followups/FollowUpSessionsPanel";
 import SessionsPanel from "../components/sessions/SessionsPanel";
 import { PSYCHOLOGIST_NAV } from "../lib/navigation";
 import { addDays, addMonthsClamped, getVisibleRange, startOfDay } from "../lib/calendar";
 import { describeError } from "../lib/psychologists";
 import { getPsychologist, getPsychologistByAuthUser, listAvailability } from "../lib/psychologistsApi";
-import { fetchAppointments, recommendFollowUp, updateSessionStatus } from "../lib/psychologistAppointments";
+import { fetchAppointments, normalizeAppointment, recommendFollowUp, updateSessionStatus } from "../lib/psychologistAppointments";
 import { listClients } from "../lib/clientsApi";
 import { getStaffName } from "../lib/staff";
 
@@ -35,177 +35,6 @@ const PREVIEW_ENABLED = process.env.NODE_ENV !== "production";
 const SECTION_TITLES = Object.fromEntries(PSYCHOLOGIST_NAV.map((item) => [item.id, item.label]));
 const SECTIONS = PSYCHOLOGIST_NAV.map((item) => item.id);
 
-const KOLKATA_DATE_TIME = new Intl.DateTimeFormat("en-IN", {
-  timeZone: "Asia/Kolkata",
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function formatKolkata(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : KOLKATA_DATE_TIME.format(date);
-}
-
-// Read-only lists of this psychologist's active clients and upcoming appointments. Access is decided by RLS
-// (clients_read / appointments_read); the filters below only narrow what the signed-in user may already read.
-function AssignedClientsAndAppointments({ psychologistId }) {
-  const [clientsState, setClientsState] = useState({ loading: true, items: [], error: "" });
-  const [upcomingState, setUpcomingState] = useState({ loading: true, items: [], error: "" });
-
-  useEffect(() => {
-    if (!psychologistId) return undefined;
-    let cancelled = false;
-    const supabase = createClient();
-
-    supabase
-      .from("clients")
-      .select("id, full_name, phone, email, city")
-      .eq("primary_psychologist_id", psychologistId)
-      .eq("is_active", true)
-      .order("full_name", { ascending: true })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("Failed to load assigned clients:", error);
-          setClientsState({ loading: false, items: [], error: describeError(error, "Could not load your clients.") });
-        } else {
-          setClientsState({ loading: false, items: data || [], error: "" });
-        }
-      });
-
-    supabase
-      .from("appointments")
-      .select("id, service_type, starts_at, ends_at, status, client:clients(full_name)")
-      .eq("psychologist_id", psychologistId)
-      .in("status", ["Scheduled", "Confirmed"])
-      .gte("starts_at", new Date().toISOString())
-      .order("starts_at", { ascending: true })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("Failed to load upcoming appointments:", error);
-          setUpcomingState({ loading: false, items: [], error: describeError(error, "Could not load upcoming appointments.") });
-        } else {
-          setUpcomingState({ loading: false, items: data || [], error: "" });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [psychologistId]);
-
-  return (
-    <>
-      <section className="section">
-        <div className="section-head">
-          <div>
-            <h2>My clients</h2>
-            <p>Active clients assigned to you.</p>
-          </div>
-        </div>
-        <div className="panel">
-          <div className="table-wrap">
-            <table className="table sticky-first">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Phone</th>
-                  <th>Email</th>
-                  <th>City</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientsState.loading || clientsState.error || clientsState.items.length === 0 ? (
-                  <tr className="table-state">
-                    <td colSpan={4}>
-                      {clientsState.loading ? (
-                        <div className="state compact" aria-busy="true">Loading clients…</div>
-                      ) : clientsState.error ? (
-                        <div className="state compact error" role="alert">
-                          <strong>Could not load your clients</strong>
-                          {clientsState.error}
-                        </div>
-                      ) : (
-                        <div className="state compact">No assigned clients yet.</div>
-                      )}
-                    </td>
-                  </tr>
-                ) : (
-                  clientsState.items.map((client) => (
-                    <tr key={client.id}>
-                      <td>{client.full_name || "—"}</td>
-                      <td>{client.phone || "—"}</td>
-                      <td>{client.email || "—"}</td>
-                      <td>{client.city || "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="section-head">
-          <div>
-            <h2>Upcoming appointments</h2>
-            <p>Scheduled and confirmed appointments from now on. Times are in India Standard Time.</p>
-          </div>
-        </div>
-        <div className="panel">
-          <div className="table-wrap">
-            <table className="table sticky-first">
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Service</th>
-                  <th>Starts</th>
-                  <th>Ends</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {upcomingState.loading || upcomingState.error || upcomingState.items.length === 0 ? (
-                  <tr className="table-state">
-                    <td colSpan={5}>
-                      {upcomingState.loading ? (
-                        <div className="state compact" aria-busy="true">Loading appointments…</div>
-                      ) : upcomingState.error ? (
-                        <div className="state compact error" role="alert">
-                          <strong>Could not load upcoming appointments</strong>
-                          {upcomingState.error}
-                        </div>
-                      ) : (
-                        <div className="state compact">No upcoming appointments.</div>
-                      )}
-                    </td>
-                  </tr>
-                ) : (
-                  upcomingState.items.map((appointment) => (
-                    <tr key={appointment.id}>
-                      <td>{(appointment.client && appointment.client.full_name) || "—"}</td>
-                      <td>{appointment.service_type || "—"}</td>
-                      <td>{formatKolkata(appointment.starts_at)}</td>
-                      <td>{formatKolkata(appointment.ends_at)}</td>
-                      <td>{appointment.status}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </>
-  );
-}
-
 function PsychologistDashboard() {
   const router = useRouter();
   const narrow = useIsNarrow();
@@ -213,6 +42,7 @@ function PsychologistDashboard() {
   const [now, setNow] = useState(() => new Date());
   const [section, setSection] = useState("dashboard");
   const [clientId, setClientId] = useState(null); // client profile open in "My clients"
+  const [followUpFocus, setFollowUpFocus] = useState(null); // follow-up to open in "Follow-ups"
   const [loggingOut, setLoggingOut] = useState(false);
 
   // auth + profile: { status: "loading" | "ready" | "no-profile" | "error", user, psychologist, message }
@@ -404,7 +234,13 @@ function PsychologistDashboard() {
     const result = await updateSessionStatus(appointment.id, status, extra);
     setActionBusy(false);
     if (result.ok) {
-      notify(status === "cancelled" ? "Appointment cancelled. The slot is free again." : `Marked ${status}`);
+      notify(
+        status === "cancelled"
+          ? "Appointment cancelled. The time is free for other bookings."
+          : status === "completed"
+            ? "Session marked as completed."
+            : "Session marked as missed."
+      );
       setOpenAppointment(null);
       refreshAppointments();
     } else {
@@ -415,7 +251,7 @@ function PsychologistDashboard() {
   async function handleRecommend(values) {
     const result = await recommendFollowUp(values);
     if (result.ok) {
-      notify("Follow-up recommended. Staff will track it.");
+      notify("Follow-up recommended. The clinic team will arrange the booking with the client.");
       setOpenAppointment(null);
     }
     return result;
@@ -425,12 +261,12 @@ function PsychologistDashboard() {
     try {
       const clients = await listClients({ psychologistId });
       if (clients.length === 0) {
-        notify("You have no assigned clients yet. Staff assign clients when a lead is confirmed.", "error");
+        notify("You don't have any clients yet. The clinic team assigns clients to you.", "error");
         return;
       }
       workflow.openBooking(null, null, clients.filter((item) => item.is_active));
     } catch (error) {
-      notify(describeError(error, "Could not load your clients."), "error");
+      notify(describeError(error, "We couldn't load your clients. Please try again."), "error");
     }
   }
 
@@ -448,6 +284,7 @@ function PsychologistDashboard() {
   const navigate = useCallback((id, options = {}) => {
     setSection(id);
     setClientId(options.clientId || null);
+    setFollowUpFocus(options.focusId || null);
     setOpenAppointment(null);
     const params = new URLSearchParams();
     if (id !== "dashboard") params.set("section", id);
@@ -477,10 +314,10 @@ function PsychologistDashboard() {
     return (
       <div className={`${styles.scope} ${styles.fullCenter}`}>
         <div className={styles.fullCard} role={missing ? "status" : "alert"}>
-          <h1>{missing ? "No psychologist profile linked" : "Could not open your workspace"}</h1>
+          <h1>{missing ? "Your account isn't set up yet" : "We couldn't open your workspace"}</h1>
           <p>
             {missing
-              ? "This login is not linked to a psychologist profile, or you do not have access to it. Please ask your administrator to link your account."
+              ? "This login isn't linked to a psychologist profile yet. Please ask your clinic administrator to link your account."
               : auth.message}
           </p>
           {missing && PREVIEW_ENABLED && (
@@ -536,20 +373,26 @@ function PsychologistDashboard() {
         )}
 
         {section === "dashboard" && hasProfile && (
-          <PsychologistOverview psychologistId={psychologistId} name={name} now={now} onNavigate={(id) => navigate(id)} onOpenClient={openClient} />
+          <PsychologistOverview
+            key={apptTick}
+            psychologistId={psychologistId}
+            name={name}
+            now={now}
+            onNavigate={navigate}
+            onOpenClient={openClient}
+            onOpenAppointment={(row) => setOpenAppointment(normalizeAppointment(row))}
+          />
         )}
-
-        {section === "dashboard" && hasProfile && <AssignedClientsAndAppointments psychologistId={psychologistId} />}
 
         {section === "clients" && hasProfile && !clientId && (
           <>
             <header className="page-head">
               <div>
                 <h1>My clients</h1>
-                <p>Clients assigned to you. Open one for their history, sessions and follow-ups.</p>
+                <p>The clients you are working with. Open a profile to see their sessions, notes and follow-ups.</p>
               </div>
             </header>
-            <ClientList psychologistId={psychologistId} showPsychologist={false} onOpen={(client) => openClient(client.id)} />
+            <ClientList psychologistId={psychologistId} showPsychologist={false} psychologistView onOpen={(client) => openClient(client.id)} />
           </>
         )}
 
@@ -561,13 +404,13 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Appointments</h1>
-                <p>Your appointments by day, week or month, with your weekly availability shaded.</p>
+                <h1>Calendar</h1>
+                <p>Your appointments by day, week or month. Shaded times are your working hours; select an appointment to see its details.</p>
               </div>
               {hasProfile && (
                 <div className="page-actions">
                   <button type="button" className="btn btn-primary" onClick={bookFromCalendar}>
-                    <Icon name="plus" /> Book appointment
+                    <Icon name="plus" /> Book an appointment
                   </button>
                 </div>
               )}
@@ -577,8 +420,8 @@ function PsychologistDashboard() {
               <div className="notice" role="status">
                 <Icon name="info" />
                 <div>
-                  <strong>Appointments are not set up in the database yet</strong>
-                  The calendar shows your weekly availability. Appointments appear once the clinic applies the scheduling migration.
+                  <strong>Your appointments aren&apos;t available yet</strong>
+                  The calendar shows your working hours. Appointments will appear once the clinic has finished setting up scheduling.
                 </div>
               </div>
             )}
@@ -613,7 +456,10 @@ function PsychologistDashboard() {
             <header className="page-head">
               <div>
                 <h1>Sessions</h1>
-                <p>Record attendance after each appointment, add the session outcome and notes, and recommend follow-ups.</p>
+                <p>
+                  An appointment becomes a session once it takes place. After each one, mark it as completed or missed, add your
+                  notes, and recommend a follow-up if needed.
+                </p>
               </div>
             </header>
             <SessionsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
@@ -625,7 +471,10 @@ function PsychologistDashboard() {
             <header className="page-head">
               <div>
                 <h1>My availability</h1>
-                <p>Your weekly working periods (several per day, with breaks) and dates you are unavailable.</p>
+                <p>
+                  Set the hours you work each week and block dates when you are away. Clients can be booked in your working hours
+                  unless a time is already booked or blocked.
+                </p>
               </div>
             </header>
             <AvailabilityManager psychologistId={psychologistId} notify={notify} onChanged={() => setPeriodsTick((tick) => tick + 1)} />
@@ -636,11 +485,21 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Follow-up recommendations</h1>
-                <p>Your recommendations after sessions. Staff book them through the normal appointment process.</p>
+                <h1>Follow-ups</h1>
+                <p>
+                  Follow-ups you recommended after a session. A recommended follow-up becomes a scheduled session once a date and time
+                  are booked. The clinic team handles reminders and client confirmation.
+                </p>
               </div>
             </header>
-            <RecommendationsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
+            <FollowUpSessionsPanel
+              key={followUpFocus || "all"}
+              viewer={viewer}
+              psychologistId={psychologistId}
+              notify={notify}
+              onOpenClient={openClient}
+              initialFocusId={followUpFocus}
+            />
           </>
         )}
 
@@ -658,8 +517,11 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Profile</h1>
-                <p>Your details as held by the clinic. Contact an administrator to change them. Appearance is in Profile settings.</p>
+                <h1>My profile</h1>
+                <p>
+                  Your details as the clinic has them. To change them, contact your clinic administrator. To switch between light and dark
+                  mode, open Profile settings from your name at the top of the page.
+                </p>
               </div>
             </header>
             <section className="panel panel-pad">
@@ -668,9 +530,9 @@ function PsychologistDashboard() {
                 <dd>{psychologist.name || "—"}</dd>
                 <dt>Phone number</dt>
                 <dd>{psychologist.phone || "—"}</dd>
-                <dt>Account status</dt>
-                <dd>{psychologist.active ? "Active" : "Inactive"}</dd>
-                <dt>Login email</dt>
+                <dt>Status</dt>
+                <dd>{psychologist.active ? "Active: clients can be booked with you" : "Inactive: no new bookings"}</dd>
+                <dt>Sign-in email</dt>
                 <dd>{auth.user.email || "—"}</dd>
               </dl>
             </section>

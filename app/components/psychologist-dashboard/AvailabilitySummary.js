@@ -5,7 +5,7 @@ import styles from "./dashboard.module.css";
 
 /* Recurring weekly availability. Compact mode lists one weekday (used beside the calendar). */
 export default function AvailabilitySummary({ periods, loading, error, weekday, onRetry }) {
-  const note = "Recurring availability only. It does not show which times are actually free or bookable.";
+  const note = "Your weekly working hours. Booked times and blocked dates are not shown here.";
 
   if (loading) {
     return (
@@ -26,7 +26,7 @@ export default function AvailabilitySummary({ periods, loading, error, weekday, 
 
   if (weekday) {
     const dayPeriods = periods.filter((period) => period.day_of_week === weekday);
-    if (dayPeriods.length === 0) return <p className={styles.help}>No recurring availability on this weekday.</p>;
+    if (dayPeriods.length === 0) return <p className={styles.help}>You are not available on this day of the week.</p>;
     return (
       <div className={styles.compactAvail}>
         {dayPeriods.map((period) => (
@@ -52,7 +52,7 @@ export default function AvailabilitySummary({ periods, loading, error, weekday, 
               <span className={styles.availDay}>{day.name}</span>
               <span className={styles.availTimes}>
                 {dayPeriods.length === 0 ? (
-                  <span className={styles.help}>No availability set</span>
+                  <span className={styles.help}>Not working</span>
                 ) : (
                   dayPeriods.map((period) => (
                     <span key={period.id} className={`${styles.pill} ${period.is_active ? "" : styles.pillOff}`}>

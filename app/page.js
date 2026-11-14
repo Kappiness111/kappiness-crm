@@ -8,7 +8,10 @@ import Dialog from "./components/Dialog";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
 import StatusBadge from "./components/StatusBadge";
-import { CRM_NAV, CRM_VIEWS, roleLabel } from "./lib/navigation";
+import { CRM_NAV, CRM_VIEWS, crmSectionOf, roleLabel } from "./lib/navigation";
+import PageTabs from "./components/PageTabs";
+import NotificationCenter from "./components/notifications/NotificationCenter";
+import FollowUpReport from "./components/reports/FollowUpReport";
 import { createClient } from "../utils/supabase/client";
 import { canUpdateStatuses, getStaffName, getStaffRole } from "./lib/staff";
 import {
@@ -188,7 +191,6 @@ export default function DashboardPage() {
   const [calDay, setCalDay] = useState(null);
   const [calPsychologist, setCalPsychologist] = useState("all");
   const [notifications, setNotifications] = useState([]);
-  const [notifOpen, setNotifOpen] = useState(false);
   const router = useRouter();
   const [appointments, setAppointments] = useState([]);
   // Scheduling data from Supabase: loading | ready | missing (migration not applied) | error
@@ -205,6 +207,7 @@ export default function DashboardPage() {
   const [dashRange, setDashRange] = useState(DEFAULT_RANGE);
   const [dashScope, setDashScope] = useState("all"); // all | mine
   const [dashTab, setDashTab] = useState("appointments"); // schedule card tab
+  const [reportTab, setReportTab] = useState("leads"); // leads | followups
   const [dashSearch, setDashSearch] = useState("");
 
   useEffect(() => {
@@ -302,7 +305,7 @@ export default function DashboardPage() {
       } catch (error) {
         console.error("Failed to load leads from Supabase:", error);
         if (!cancelled) {
-          setLeadsError("Could not load leads from Supabase. Please check your connection.");
+          setLeadsError("We couldn't load your leads. Please check your connection and try again.");
         }
       } finally {
         if (!cancelled) setLeadsLoading(false);
@@ -316,6 +319,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    // The clock is read after mount (never during prerendering) and refreshed every minute.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
@@ -539,7 +544,6 @@ export default function DashboardPage() {
       })
     : [];
 
-  const unreadCount = notifications.filter((item) => !item.read).length;
 
   const attentionCount = followUps.overdue.length + followUps.today.length;
   const openFollowUpCount = attentionCount + followUps.upcoming.length;
@@ -692,7 +696,6 @@ const filteredLeads = useMemo(() => {
 
   function navigateTo(page) {
     setActivePage(page);
-    setNotifOpen(false);
     closeLeadDetails();
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", page === "Dashboard" ? "/" : `/?view=${encodeURIComponent(page)}`);
@@ -819,7 +822,7 @@ const filteredLeads = useMemo(() => {
           return { ok: false, message: describeSaveError(error) };
         }
         if (!data?.ok || !data.lead) {
-          return { ok: false, message: data?.message || "Supabase returned no updated lead. Please refresh and try again." };
+          return { ok: false, message: data?.message || "This lead wasn't updated. Please refresh the page and try again." };
         }
 
         const saved = mapLeadRecord({
@@ -845,7 +848,7 @@ const filteredLeads = useMemo(() => {
           console.error("Failed to update lead in Supabase:", error);
           return { ok: false, message: describeSaveError(error) };
         }
-        if (!data) return { ok: false, message: "Supabase returned no updated lead. Please try again." };
+        if (!data) return { ok: false, message: "This lead wasn't updated. Please try again." };
 
         const saved = mapLeadRecord({
           ...data,
@@ -904,7 +907,7 @@ const filteredLeads = useMemo(() => {
       } catch (error) {
         console.error("Failed to fetch lead details from Supabase:", error);
         if (requestId === leadDetailRequestRef.current) {
-          setSelectedLeadError(error instanceof Error ? error.message : "Could not load this lead from Supabase.");
+          setSelectedLeadError(describeLeadError(error, "We couldn't open this lead. Please try again."));
         }
       } finally {
         if (requestId === leadDetailRequestRef.current) setSelectedLeadLoading(false);
@@ -983,8 +986,8 @@ const filteredLeads = useMemo(() => {
     } catch (error) {
       console.error("Failed to create lead in Supabase:", error);
       // Supabase errors are plain objects (code, message, details), not Error instances.
-      const fallback = error && error.message ? `Could not save this lead. ${error.message}` : "Could not save this lead. Please try again.";
-      setCreateLeadError(describeLeadError(error, fallback));
+      // Raw database text is logged above, never shown.
+      setCreateLeadError(describeLeadError(error, "We couldn't save this lead. Your details are still in the form, so please try again."));
       return false;
     } finally {
       createLeadBusyRef.current = false;
@@ -1268,13 +1271,7 @@ const filteredLeads = useMemo(() => {
     }
   }
 
-  function reminderLabel(item) {
-    const minutes = Math.round((new Date(item.starts_at) - now) / 60000);
-    if (minutes <= 0) return "Starting now";
-    if (minutes < 60) return `In ${minutes} min`;
-    const hours = Math.round(minutes / 60);
-    return isSameDay(new Date(item.starts_at), now) ? `Today, in ${hours} hr` : `Tomorrow, in ${hours} hr`;
-  }
+
 
   async function handleAppointmentAction(item, action) {
     const result = await runAppointmentAction(item, action);
@@ -2144,85 +2141,57 @@ const filteredLeads = useMemo(() => {
   /* ----- render ----- */
 
   const navItems = CRM_NAV.map((item) =>
-    item.id === "Follow Ups" ? { ...item, count: attentionCount || undefined } : item
+    item.id === "Leads" ? { ...item, count: attentionCount || undefined } : item
   );
-  const attentionTotal = unreadCount + reminders.length + attentionCount;
-  const overdueCount = followUps.overdue.length;
   const confirmedShare = totalLeads ? Math.round((confirmedCount / totalLeads) * 100) : 0;
   const nextAppointments = [...upcomingAppointments]
     .filter((item) => !now || new Date(item.starts_at).getTime() >= now.getTime() - 15 * 60000)
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
   const firstName = (currentStaff.name || "").split(" ")[0];
 
+  // Notifications come from real CRM records; changes made in this tab are listed under "Just now".
   const headerActions = (
-    <div className="popover-wrap">
-      <button
-        type="button"
-        className="icon-btn"
-        aria-label={`Notifications${attentionTotal > 0 ? `, ${attentionTotal} need attention` : ""}`}
-        aria-expanded={notifOpen}
-        aria-haspopup="dialog"
-        onClick={() => setNotifOpen((open) => !open)}
-      >
-        <Icon name="bell" />
-        {attentionTotal > 0 && <span className="dot" />}
-      </button>
-
-      {notifOpen && (
-        <div className="menu notif-panel" role="dialog" aria-label="Notifications">
-          <div className="notif-head">
-            <strong>Notifications</strong>
-            {notifications.length > 0 && (
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => setNotifications((current) => current.map((item) => ({ ...item, read: true })))}
-              >
-                Mark all read
-              </button>
-            )}
-          </div>
-          <div className="notif-list">
-            {attentionCount > 0 && (
-              <button type="button" className="notif-item" onClick={() => navigateTo("Follow Ups")}>
-                <strong>
-                  {attentionCount} follow-up{attentionCount > 1 ? "s" : ""} need attention
-                </strong>
-                <small>{overdueCount > 0 ? `${overdueCount} overdue` : "Due today"}</small>
-              </button>
-            )}
-            {reminders.map((item) => {
-              const lead = leadsById.get(item.lead_id);
-              return (
-                <button type="button" className="notif-item" key={`r-${item.id}`} onClick={() => navigateTo("Confirmed")}>
-                  <strong>
-                    {lead ? lead.full_name : "Appointment"} at {formatTime(item.starts_at)}
-                  </strong>
-                  <small>{reminderLabel(item)}</small>
-                </button>
-              );
-            })}
-            {notifications.map((item) => (
-              <div className={`notif-item ${item.read ? "" : "unread"}`} key={item.id}>
-                <strong>{item.text}</strong>
-                <small>{formatDateTime(item.at)}</small>
-              </div>
-            ))}
-            {notifications.length === 0 && reminders.length === 0 && attentionCount === 0 && (
-              <p className="notif-empty">You are all caught up.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <NotificationCenter
+      sessionItems={notifications}
+      onSessionRead={() => setNotifications((current) => current.map((item) => ({ ...item, read: true })))}
+      onNavigate={(href) => {
+        const view = href.startsWith("/?view=") ? decodeURIComponent(href.slice(7)) : null;
+        if (view && CRM_VIEWS.includes(view)) navigateTo(view);
+        else router.push(href);
+      }}
+    />
   );
 
-  const pageTitle = (CRM_NAV.find((item) => item.id === activePage) || {}).label || activePage;
+  const VIEW_TITLES = { "Follow Ups": "Follow-up calls", Confirmed: "Appointment list" };
+  const pageTitle = VIEW_TITLES[activePage] || (CRM_NAV.find((item) => item.id === activePage) || {}).label || activePage;
+  const leadTabs = (
+    <PageTabs
+      label="Leads"
+      activeId={activePage}
+      onSelect={openPage}
+      items={[
+        { id: "Leads", label: "All leads", count: totalLeads },
+        { id: "Follow Ups", label: "Follow-up calls", count: attentionCount || undefined },
+      ]}
+    />
+  );
+  const appointmentTabs = (
+    <PageTabs
+      label="Appointments"
+      activeId={activePage}
+      onSelect={(id) => (id === "Schedule" ? router.push("/schedule") : openPage(id))}
+      items={[
+        { id: "Appointments", label: "Calendar" },
+        { id: "Confirmed", label: "Appointment list", count: upcomingAppointments.length },
+        { id: "Schedule", label: "Schedule & capacity" },
+      ]}
+    />
+  );
 
   return (
     <AppShell
       nav={navItems}
-      activeId={activePage}
+      activeId={crmSectionOf(activePage)}
       onNavigate={openPage}
       workspaceLabel="Client relations"
       crumbs={activePage === "Dashboard" ? [{ label: "Dashboard" }] : [{ label: "Dashboard", onClick: () => openPage("Dashboard") }, { label: pageTitle }]}
@@ -2247,6 +2216,7 @@ const filteredLeads = useMemo(() => {
 
       {activePage === "Leads" && (
         <>
+          {leadTabs}
           <header className="page-head">
             <div>
               <h1>Leads</h1>
@@ -2268,11 +2238,12 @@ const filteredLeads = useMemo(() => {
                   key={status}
                   type="button"
                   role="tab"
-                  className="tab"
+                  className={`tab ${status === LOST_STATUS ? "tab-closed" : ""}`}
                   aria-selected={statusFilter === status}
                   onClick={() => setStatusFilter(status)}
+                  title={status === LOST_STATUS ? "Leads that are not going ahead. Lost is final." : undefined}
                 >
-                  {status === "All" ? "All" : status}
+                  {status === "All" ? "All" : status === LOST_STATUS ? "Lost (closed)" : status}
                   <span className="tab-count">{status === "All" ? totalLeads : statusCounts[status]}</span>
                 </button>
               ))}
@@ -2318,9 +2289,10 @@ const filteredLeads = useMemo(() => {
 
       {activePage === "Follow Ups" && (
         <>
+          {leadTabs}
           <header className="page-head">
             <div>
-              <h1>Follow-ups</h1>
+              <h1>Follow-up calls</h1>
               <p>Every scheduled conversation, in the order it needs attention.</p>
             </div>
             <div className="page-actions">
@@ -2385,6 +2357,7 @@ const filteredLeads = useMemo(() => {
 
       {activePage === "Appointments" && (
         <>
+          {appointmentTabs}
           <header className="page-head">
             <div>
               <h1>Appointments</h1>
@@ -2403,8 +2376,8 @@ const filteredLeads = useMemo(() => {
             <div className="notice" role="status">
               <Icon name="info" />
               <div>
-                <strong>Appointments are not set up in the database yet</strong>
-                Apply migrations 202611030002 and 202611040001 in Supabase. Until then nothing can be booked or saved.
+                <strong>Scheduling isn&apos;t set up yet</strong>
+                Appointments can&apos;t be booked or saved until the database setup is finished. Please let your administrator know.
               </div>
             </div>
           )}
@@ -2558,9 +2531,10 @@ const filteredLeads = useMemo(() => {
 
       {activePage === "Confirmed" && (
         <>
+          {appointmentTabs}
           <header className="page-head">
             <div>
-              <h1>Confirmed</h1>
+              <h1>Appointment list</h1>
               <p>Appointments for confirmed clients. Record client confirmation, attendance, cancellations and reschedules here.</p>
             </div>
             {canScheduleAppointments && (
@@ -2576,8 +2550,8 @@ const filteredLeads = useMemo(() => {
             <div className="notice" role="status">
               <Icon name="info" />
               <div>
-                <strong>Appointments are not set up in the database yet</strong>
-                Apply migrations 202611030002 and 202611040001 in Supabase. Until then nothing can be booked or saved.
+                <strong>Scheduling isn&apos;t set up yet</strong>
+                Appointments can&apos;t be booked or saved until the database setup is finished. Please let your administrator know.
               </div>
             </div>
           )}
@@ -2594,19 +2568,41 @@ const filteredLeads = useMemo(() => {
             </div>
           )}
 
-          <section className="section">
-            <div className="section-head">
-              <h2>
-                Upcoming <span className="muted num">{upcomingAppointments.length}</span>
-              </h2>
-            </div>
-            <div className="panel">
-              {renderAppointmentTable(
-                [...upcomingAppointments].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)),
-                "No upcoming appointments. Book one for a confirmed client."
-              )}
-            </div>
-          </section>
+          {/* Confirmed and unconfirmed appointments are kept apart: "Confirmed" here means the client confirmed the
+              appointment, which is separate from a lead being Confirmed. */}
+          {[
+            {
+              key: "awaiting",
+              title: "Awaiting client confirmation",
+              help: "Booked, but the client has not confirmed yet. Record the confirmation once the client agrees.",
+              items: upcomingAppointments.filter((item) => item.status === "Scheduled"),
+              empty: "No appointments are waiting for client confirmation.",
+            },
+            {
+              key: "confirmed",
+              title: "Confirmed by the client",
+              help: "The client has confirmed these appointments.",
+              items: upcomingAppointments.filter((item) => item.status === "Confirmed"),
+              empty: "No confirmed appointments yet.",
+            },
+          ].map((group) => (
+            <section className="section" key={group.key}>
+              <div className="section-head">
+                <div>
+                  <h2>
+                    {group.title} <span className="muted num">{group.items.length}</span>
+                  </h2>
+                  <p>{group.help}</p>
+                </div>
+              </div>
+              <div className="panel">
+                {renderAppointmentTable(
+                  [...group.items].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)),
+                  group.empty
+                )}
+              </div>
+            </section>
+          ))}
 
           {confirmedWithoutBooking.length > 0 && (
             <section className="section">
@@ -2651,10 +2647,28 @@ const filteredLeads = useMemo(() => {
           <header className="page-head">
             <div>
               <h1>Reports</h1>
-              <p>Breakdowns from the lead records currently in the CRM.</p>
+              <p>
+                {reportTab === "leads"
+                  ? "How leads are progressing: status, source, reasons for losing leads and staff workload."
+                  : "Every booked follow-up session, by psychologist and status."}
+              </p>
             </div>
           </header>
 
+          <PageTabs
+            label="Reports"
+            activeId={reportTab}
+            onSelect={setReportTab}
+            items={[
+              { id: "leads", label: "Leads" },
+              { id: "followups", label: "Follow-up sessions" },
+            ]}
+          />
+
+          {reportTab === "followups" && <FollowUpReport psychologistNames={psychologistNames} onOpenClient={(id) => router.push(`/clients/${id}`)} />}
+
+          {reportTab === "leads" && (
+          <>
           <section className="kpis" aria-label="Report summary">
             <div className="kpi">
               <span className="kpi-label">Total leads</span>
@@ -2694,6 +2708,8 @@ const filteredLeads = useMemo(() => {
             )}
             {renderBreakdown("Leads per staff member", countBy((lead) => (lead.assigned_staff || "").trim() || "Unassigned"), "No leads yet.", "Staff member")}
           </div>
+          </>
+          )}
         </>
       )}
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Dialog from "../Dialog";
 import Icon from "../Icon";
 import { StatusPill } from "../AppointmentTable";
+import { sessionStatusLabel } from "../../lib/statusLabels";
 import FollowUpRecommendationForm from "../psychologist-dashboard/FollowUpRecommendationForm";
 import useAppointmentWorkflow from "../scheduling/useAppointmentWorkflow";
 import { describeAppointmentError } from "../../lib/appointmentsApi";
@@ -18,7 +19,7 @@ import {
 } from "../../lib/sessionsApi";
 
 const RANGES = [
-  { id: "upcoming", label: "Upcoming" },
+  { id: "upcoming", label: "Upcoming sessions" },
   { id: "30", label: "Last 30 days" },
   { id: "90", label: "Last 90 days" },
   { id: "all", label: "All" },
@@ -33,6 +34,7 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
   const [state, setState] = useState({ status: "loading", message: "" });
   const [range, setRange] = useState("30");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [psychologistFilter, setPsychologistFilter] = useState("all");
   const [reload, setReload] = useState(0);
   const [editing, setEditing] = useState(null); // session
   const [recommending, setRecommending] = useState(null); // session
@@ -68,7 +70,16 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
     };
   }, [psychologistId, range, reload]);
 
-  const visible = useMemo(() => (statusFilter === "All" ? rows : rows.filter((item) => item.status === statusFilter)), [rows, statusFilter]);
+  const visible = useMemo(
+    () =>
+      rows.filter(
+        (item) =>
+          (statusFilter === "All" || item.status === statusFilter) &&
+          (psychologistFilter === "all" || String(item.psychologist_id) === psychologistFilter)
+      ),
+    [rows, statusFilter, psychologistFilter]
+  );
+  const psychologistIds = [...new Set(rows.map((item) => String(item.psychologist_id)))];
   const counts = useMemo(() => {
     const map = {};
     SESSION_STATUSES.forEach((status) => {
@@ -100,11 +111,21 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
             </button>
           ))}
         </div>
+        {!psychologistId && psychologistIds.length > 1 && (
+          <select value={psychologistFilter} onChange={(event) => setPsychologistFilter(event.target.value)} aria-label="Filter by psychologist">
+            <option value="all">All psychologists</option>
+            {psychologistIds.map((id) => (
+              <option key={id} value={id}>
+                {psychologistNames[id] || "Psychologist"}
+              </option>
+            ))}
+          </select>
+        )}
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by status">
           <option value="All">All statuses ({rows.length})</option>
           {SESSION_STATUSES.map((status) => (
             <option key={status} value={status}>
-              {status} ({counts[status]})
+              {sessionStatusLabel(status)} ({counts[status]})
             </option>
           ))}
         </select>
@@ -125,8 +146,8 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
         {state.status === "ready" && visible.length === 0 && (
           <div className="state">
             <Icon name="clipboard" />
-            <strong>No sessions in this view</strong>
-            <span>Sessions are created when appointments are booked.</span>
+            <strong>No sessions here</strong>
+            <span>Each booked appointment has a session. Try another time range or status.</span>
           </div>
         )}
         {state.status === "ready" && visible.length > 0 && (
@@ -137,9 +158,9 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
                   <th scope="col">Date</th>
                   <th scope="col">Client</th>
                   {!psychologistId && <th scope="col">Psychologist</th>}
-                  <th scope="col">Type</th>
+                  <th scope="col">Session type</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Outcome</th>
+                  <th scope="col">Session summary</th>
                   <th scope="col" className="right">
                     Actions
                   </th>
@@ -167,7 +188,8 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
                     {!psychologistId && <td>{psychologistNames[session.psychologist_id] || "—"}</td>}
                     <td>{session.session_type}</td>
                     <td>
-                      <StatusPill status={session.status} />
+                      <StatusPill status={session.status} label={sessionStatusLabel(session.status)} />
+                      {awaitingAttendance(session) && <small className="muted block">Started: please update</small>}
                     </td>
                     <td className="wrap">
                       {session.outcome || <span className="muted">—</span>}
@@ -178,21 +200,21 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
                         {awaitingAttendance(session) && (
                           <>
                             <button type="button" className="appt-btn dark" disabled={workflow.busyId === session.appointment_id} onClick={() => workflow.runAction(asAppointment(session), "attended")}>
-                              Attended
+                              Mark as completed
                             </button>
                             <button type="button" className="appt-btn" disabled={workflow.busyId === session.appointment_id} onClick={() => workflow.runAction(asAppointment(session), "missed")}>
-                              Missed
+                              Mark as missed
                             </button>
                           </>
                         )}
                         {isOwn(session) && session.status === "Completed" && (
                           <button type="button" className="appt-btn" onClick={() => setRecommending(session)}>
-                            Recommend follow-up
+                            Recommend a follow-up
                           </button>
                         )}
                         {canEdit(session) && (
                           <button type="button" className="appt-btn" onClick={() => setEditing(session)}>
-                            Details
+                            View session
                           </button>
                         )}
                       </span>
@@ -212,7 +234,7 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
           canWriteNotes={isOwn(editing) || viewer.isAdmin}
           onClose={() => setEditing(null)}
           onSaved={() => {
-            notify("Session updated");
+            notify("Session details saved.");
             setEditing(null);
             setReload((value) => value + 1);
           }}
@@ -234,7 +256,7 @@ export default function SessionsPanel({ viewer, psychologistId = null, psycholog
                     time: values.time,
                     priority: values.priority,
                   });
-                  notify("Follow-up recommended. Staff will see it in Follow-up recommendations.");
+                  notify("Follow-up recommended. The clinic team will arrange the booking with the client.");
                   setRecommending(null);
                   return { ok: true };
                 } catch (error) {
@@ -263,7 +285,7 @@ function SessionEditor({ session, note, canWriteNotes, onClose, onSaved }) {
     if (busy) return;
     if (outcome.length > 500) return setError("Keep the outcome under 500 characters.");
     if (text.length > 5000) return setError("Keep notes under 5000 characters.");
-    if (canWriteNotes && note && !text.trim()) return setError("Notes cannot be emptied. Write an update instead.");
+    if (canWriteNotes && note && !text.trim()) return setError("Notes cannot be left empty once saved. Add an update instead.");
     setBusy(true);
     setError("");
     try {
@@ -285,7 +307,7 @@ function SessionEditor({ session, note, canWriteNotes, onClose, onSaved }) {
     <Dialog
       titleId="session-edit-title"
       title="Session details"
-      subtitle={`${session.client_name}, ${formatDate(session.starts_at)} ${formatTime(session.starts_at)} · ${session.status}`}
+      subtitle={`${session.client_name}, ${formatDate(session.starts_at)} ${formatTime(session.starts_at)} · ${sessionStatusLabel(session.status)}`}
       onClose={onClose}
       busy={busy}
       footer={
@@ -311,18 +333,18 @@ function SessionEditor({ session, note, canWriteNotes, onClose, onSaved }) {
           </select>
         </div>
         <div className="field">
-          <label htmlFor="session-outcome">Outcome summary</label>
+          <label htmlFor="session-outcome">Session summary</label>
           <textarea id="session-outcome" rows={2} maxLength={500} value={outcome} onChange={(event) => setOutcome(event.target.value)} />
-          <p className="subtle-text">Non-clinical summary. Visible to staff.</p>
+          <p className="subtle-text">A short, non-clinical summary. The clinic team can see this.</p>
         </div>
         {canWriteNotes ? (
           <div className="field">
             <label htmlFor="session-notes">Clinical notes</label>
             <textarea id="session-notes" rows={6} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} />
-            <p className="subtle-text">Visible only to you and administrators.</p>
+            <p className="subtle-text">Private: only you and clinic administrators can read these.</p>
           </div>
         ) : (
-          <p className="subtle-text">Clinical notes can only be written by the session&apos;s psychologist.</p>
+          <p className="subtle-text">Clinical notes can only be written by the psychologist who held the session.</p>
         )}
         {error && (
           <p className="field-error" role="alert">

@@ -52,7 +52,7 @@ export default function FollowUpRecommendationForm({ appointment, initial = null
       <div>
         <strong>{initial ? "Edit recommendation" : "Recommend a follow-up"}</strong>
         <p className="subtle-text" style={{ marginTop: 2 }}>
-          Staff track this and book it through the normal appointment process. The client is not contacted from here.
+          The clinic team will book this with the client. Nothing is sent to the client from here.
         </p>
       </div>
 
