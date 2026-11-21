@@ -1,5 +1,5 @@
 -- Kappiness CRM: psychologist access requires an active psychologist record.
--- Owner: Sariga (psychologist access rules). Review: Aswathy (shared helper).
+-- Owner: Sariga (psychologist access rules).
 --
 -- WHY
 --   current_psychologist_id() matched auth_user_id only, so a deactivated
