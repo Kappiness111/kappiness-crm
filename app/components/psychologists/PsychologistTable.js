@@ -4,11 +4,28 @@ import Icon from "../Icon";
 import { summarizeAvailability } from "../../lib/psychologists";
 
 const SKELETON_ROWS = [0, 1, 2, 3];
-const COLUMNS = 5;
+const COLUMNS = 6;
 
 function initials(name) {
   const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
   return ((parts[0] || "?")[0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+function WorkloadSummary({ data }) {
+  const d = data || { clients: 0, upcoming: 0, followUps: 0 };
+  return (
+    <span className="workload">
+      <span>
+        <strong className="num">{d.clients}</strong> client{d.clients === 1 ? "" : "s"}
+      </span>
+      <span>
+        <strong className="num">{d.upcoming}</strong> upcoming session{d.upcoming === 1 ? "" : "s"}
+      </span>
+      <span>
+        <strong className="num">{d.followUps}</strong> follow-up{d.followUps === 1 ? "" : "s"} assigned
+      </span>
+    </span>
+  );
 }
 
 /* The psychologist listing. All actions are callbacks owned by the page. */
@@ -18,6 +35,7 @@ export default function PsychologistTable({
   error,
   availabilityByPsychologist,
   availabilityUnavailable,
+  workload = null, // { [psychologistId]: { clients, upcoming, followUps } } or null while loading
   hasAnyRecords,
   canManage,
   busyIds,
@@ -38,6 +56,7 @@ export default function PsychologistTable({
             <th scope="col">Phone</th>
             <th scope="col">Status</th>
             <th scope="col">Weekly availability</th>
+            <th scope="col">Current workload</th>
             <th scope="col" className="right">
               <span className="sr-only">Actions</span>
             </th>
@@ -132,6 +151,14 @@ export default function PsychologistTable({
                         {summary.label}
                         {summary.detail ? <span className="cell-sub"> · {summary.detail}</span> : null}
                       </span>
+                    )}
+                  </td>
+
+                  <td>
+                    {workload ? (
+                      <WorkloadSummary data={workload[psychologist.id]} />
+                    ) : (
+                      <span className="muted-cell">…</span>
                     )}
                   </td>
 

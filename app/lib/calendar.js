@@ -102,12 +102,12 @@ export function formatRangeTitle(view, anchor) {
 /* ----- appointment display metadata ----- */
 
 export const TYPE_META = {
-  regular: { label: "Session" },
-  follow_up: { label: "Follow-up" },
+  regular: { label: "Appointment" },
+  follow_up: { label: "Follow-up session" },
 };
 
 export const STATUS_META = {
-  scheduled: { label: "Scheduled" },
+  scheduled: { label: "Awaiting confirmation" },
   confirmed: { label: "Confirmed" },
   rescheduled: { label: "Rescheduled" },
   completed: { label: "Completed" },

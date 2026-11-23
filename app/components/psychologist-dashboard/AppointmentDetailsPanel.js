@@ -39,10 +39,10 @@ export default function AppointmentDetailsPanel({ appointment, now = new Date(),
     <ModalShell variant="drawer" size="sm" labelledBy="appt-title" onRequestClose={onClose}>
       <header className="modal-head">
         <div>
-          <p style={{ margin: 0 }}>Appointment</p>
+          <p style={{ margin: 0 }}>Appointment details</p>
           <h2 id="appt-title">{appointment.clientName}</h2>
         </div>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close details">
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close appointment details">
           <Icon name="close" />
         </button>
       </header>
@@ -55,9 +55,9 @@ export default function AppointmentDetailsPanel({ appointment, now = new Date(),
           <dd className="num">
             {formatClock(appointment.start)} – {formatClock(appointment.end)} ({minutes} min)
           </dd>
-          <dt>Service</dt>
+          <dt>Session type</dt>
           <dd>{appointment.serviceType || "—"}</dd>
-          <dt>Type</dt>
+          <dt>Booking</dt>
           <dd>
             <span className={`badge ${appointment.type === "follow_up" ? "tone-warning" : ""}`}>{TYPE_META[appointment.type].label}</span>
           </dd>
@@ -70,14 +70,14 @@ export default function AppointmentDetailsPanel({ appointment, now = new Date(),
           </dd>
           {appointment.notes ? (
             <>
-              <dt>Booking notes</dt>
+              <dt>Notes from booking</dt>
               <dd>{appointment.notes}</dd>
             </>
           ) : null}
         </dl>
 
         {isOpen && !started && (
-          <p className="subtle-text">Attendance can be recorded once the appointment has started.</p>
+          <p className="subtle-text">Once the appointment has started, you can mark the session as completed or missed here.</p>
         )}
 
         {form === "recommend" && (
@@ -88,16 +88,16 @@ export default function AppointmentDetailsPanel({ appointment, now = new Date(),
           <form className="lost-prompt" onSubmit={submitCancel} noValidate style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <strong>Cancel this appointment</strong>
             <p className="subtle-text" style={{ margin: 0 }}>
-              The record and its original time are kept. The time slot becomes free for other bookings.
+              The appointment stays in the client&apos;s history, and the time becomes free for other bookings.
             </p>
             <div className="field">
-              <label htmlFor="cancel-reason">Reason</label>
+              <label htmlFor="cancel-reason">Reason for cancelling</label>
               <textarea id="cancel-reason" rows={2} value={reason} aria-invalid={Boolean(reasonError)} onChange={(event) => { setReason(event.target.value); setReasonError(""); }} />
               {reasonError ? <p className="field-error" role="alert">{reasonError}</p> : null}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button type="submit" className="btn btn-danger" disabled={busy}>{busy ? "Cancelling…" : "Cancel appointment"}</button>
-              <button type="button" className="btn" onClick={() => setForm(null)} disabled={busy}>Keep it</button>
+              <button type="button" className="btn" onClick={() => setForm(null)} disabled={busy}>Keep appointment</button>
             </div>
           </form>
         )}
@@ -106,31 +106,31 @@ export default function AppointmentDetailsPanel({ appointment, now = new Date(),
       <footer className="modal-foot">
         {onOpenClient && appointment.clientId && (
           <button type="button" className="btn" onClick={() => onOpenClient(appointment.clientId)}>
-            Client profile
+            View client profile
           </button>
         )}
         {appointment.status === "completed" && form === null && (
           <button type="button" className="btn" onClick={() => setForm("recommend")}>
-            Recommend follow-up
+            Recommend a follow-up
           </button>
         )}
         {isOpen && form === null && (
           <>
             {!started && onReschedule && (
               <button type="button" className="btn" disabled={busy} onClick={() => onReschedule(appointment)}>
-                Reschedule
+                Reschedule appointment
               </button>
             )}
             <button type="button" className="btn" disabled={busy} onClick={() => setForm("cancel")}>
-              Cancel…
+              Cancel appointment
             </button>
             {started && (
               <>
                 <button type="button" className="btn" disabled={busy} onClick={() => onStatus(appointment, "missed")}>
-                  Missed
+                  Mark as missed
                 </button>
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={() => onStatus(appointment, "completed")}>
-                  <Icon name="check" /> Attended
+                  <Icon name="check" /> Mark as completed
                 </button>
               </>
             )}

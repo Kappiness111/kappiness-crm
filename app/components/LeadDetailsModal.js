@@ -19,6 +19,7 @@ import {
   SOURCES,
   buildLostReason,
   canMoveStatus,
+  confirmPathHint,
   statusOptions,
   dueLabel,
   formatDate,
@@ -26,8 +27,15 @@ import {
   formatTime,
   getActivity,
   getFollowUpState,
+  closedReasonErrors,
+  closedReasonFor,
+  isReasonRequired,
+  reasonChangeFor,
+  reasonFieldsFor,
+  reasonLabel,
+  reasonUpdateText,
+  statusChangeText,
   parseDate,
-  parseLostReason,
   quickFollowUpValue,
   relativeTime,
   toInputValue,
@@ -141,12 +149,13 @@ function mergeById(...lists) {
 }
 
 function makeDraft(lead) {
-  const lost = parseLostReason(lead.status === LOST_STATUS ? lead.not_converted_reason : "");
+  // lost_reason / lost_detail hold the reason of either closed status (Not Interested or Lost Lead).
+  const reason = reasonFieldsFor(lead);
   return {
     status: lead.status,
     assigned_psychologist_id: lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : "",
-    lost_reason: lost.choice,
-    lost_detail: lost.detail,
+    lost_reason: reason.lost_reason,
+    lost_detail: reason.lost_detail,
     source: lead.source || "",
     contact_method: lead.contact_method || "",
     next_follow_up_at: toInputValue(lead.next_follow_up_at),
@@ -188,8 +197,8 @@ function validateDraft(draft, lead) {
     errors.notes = `Keep notes under ${NOTES_LIMIT} characters.`;
   }
   // Workflow rules (also enforced by update_lead_with_history in Supabase). Older records that are already
-  // Confirmed without a psychologist, or Lost without a reason, can still be edited; the rule applies when the
-  // status changes, when the psychologist is removed, or when the reason is edited.
+  // Confirmed without a psychologist, or closed (Not Interested / Lost Lead) without a reason, can still be edited;
+  // the rule applies when the status changes, when the psychologist is removed, or when the reason is edited.
   const base = makeDraft(lead);
   if (!canMoveStatus(lead.status, draft.status)) {
     errors.status = `A lead cannot move from ${lead.status} to ${draft.status}.`;
@@ -201,24 +210,8 @@ function validateDraft(draft, lead) {
   ) {
     errors.assigned_psychologist_id = CONFIRM_NEEDS_PSYCHOLOGIST;
   }
-  const lostReasonEdited = draft.lost_reason !== base.lost_reason || draft.lost_detail !== base.lost_detail;
-  if (draft.status === LOST_STATUS && (lead.status !== LOST_STATUS || lostReasonEdited)) {
-    const lost = validateLostReason(draft.lost_reason, draft.lost_detail);
-    if (lost.choice) errors.lost_reason = lost.choice;
-    if (lost.detail) errors.lost_detail = lost.detail;
-  }
+  Object.assign(errors, closedReasonErrors(draft, lead));
   return errors;
-}
-
-// What not_converted_reason should hold for a draft: the reason while Lost, cleared otherwise.
-// An untouched reason on a lead that is already Lost is kept exactly as saved.
-function lostReasonFor(draft, lead) {
-  if (draft.status !== LOST_STATUS) return "";
-  const base = makeDraft(lead);
-  if (lead.status === LOST_STATUS && draft.lost_reason === base.lost_reason && draft.lost_detail === base.lost_detail) {
-    return lead.not_converted_reason || "";
-  }
-  return buildLostReason(draft.lost_reason, draft.lost_detail);
 }
 
 // Builds a readable activity entry for each meaningful change.
@@ -227,18 +220,12 @@ function describeChanges(lead, draft, psychologistNames = {}) {
   const entries = [];
   const followUp = draft.next_follow_up_at;
   const staff = draft.assigned_staff.trim();
-  const reason = lostReasonFor(draft, lead);
+  const reason = closedReasonFor(draft, lead);
 
   if (draft.status !== base.status) {
-    entries.push({
-      type: "status",
-      text:
-        draft.status === LOST_STATUS
-          ? `Status changed from ${base.status} to Lost. Reason: ${reason}`
-          : `Status changed from ${base.status} to ${draft.status}`,
-    });
-  } else if (draft.status === LOST_STATUS && reason !== (lead.not_converted_reason || "")) {
-    entries.push({ type: "update", text: `Lost reason updated: ${reason}` });
+    entries.push({ type: "status", text: statusChangeText(base.status, draft.status, reason) });
+  } else if (isReasonRequired(draft.status) && reason !== (lead.not_converted_reason || "")) {
+    entries.push({ type: "update", text: reasonUpdateText(draft.status, reason) });
   }
 
   if (base.assigned_psychologist_id !== draft.assigned_psychologist_id) {
@@ -269,11 +256,12 @@ function describePsychologistChange(psychologistId, psychologistNames) {
   return `Psychologist assigned: ${psychologistNames[psychologistId] || "selected psychologist"}`;
 }
 
-/* Lost reason dropdown plus the explanation box for "Other". Used by the status quick change and the Edit tab. */
-function LostReasonFields({ idPrefix, reason, detail, onReason, onDetail, errors = {}, disabled = false }) {
+/* Closed-status reason dropdown plus the explanation box for "Other", for Not Interested and Lost Lead.
+   Used by the status quick change and the Edit tab. */
+function LostReasonFields({ idPrefix, label = "Lost reason", reason, detail, onReason, onDetail, errors = {}, disabled = false }) {
   return (
     <div className="lost-reason-fields">
-      <Field id={`${idPrefix}-lost_reason`} label="Lost reason" required error={errors.lost_reason}>
+      <Field id={`${idPrefix}-lost_reason`} label={label} required error={errors.lost_reason}>
         <select
           {...fieldProps(`${idPrefix}-lost_reason`, errors.lost_reason)}
           value={reason}
@@ -326,6 +314,36 @@ function InfoItem({ label, children, wide = false }) {
       <span>{label}</span>
       <strong>{children}</strong>
     </div>
+  );
+}
+
+// Status menu: the active statuses the lead may move to, with the closed statuses (REASON_REQUIRED_STATUSES:
+// Not Interested, Lost Lead) kept apart as the ways to close the lead. Both open the reason prompt when chosen.
+function StatusOptions({ current }) {
+  const options = statusOptions(current);
+  const active = options.filter((status) => !isReasonRequired(status));
+  const closing = options.filter((status) => isReasonRequired(status));
+  const closeLabel = (status) => {
+    if (status === current) return `${status} (closed)`;
+    return status === LOST_STATUS ? `${status}: not going ahead` : status;
+  };
+  return (
+    <>
+      {active.map((status) => (
+        <option key={status} value={status}>
+          {status}
+        </option>
+      ))}
+      {closing.length > 0 && (
+        <optgroup label="Close the lead">
+          {closing.map((status) => (
+            <option key={status} value={status}>
+              {closeLabel(status)}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </>
   );
 }
 
@@ -382,8 +400,9 @@ export default function LeadDetailsModal({
   const statusSavingRef = useRef(false);
   const [apptBusyId, setApptBusyId] = useState(null);
   const [apptError, setApptError] = useState("");
-  // Lost needs a reason first, so choosing it in the quick status menu opens a small form instead of saving.
-  const [lostPrompt, setLostPrompt] = useState(null); // null | { reason, detail, submitted }
+  // Not Interested and Lost Lead need a reason first, so choosing either in the quick status menu opens a small
+  // form instead of saving.
+  const [lostPrompt, setLostPrompt] = useState(null); // null | { status, reason, detail, submitted }
   // Psychologist assignment on the Overview tab.
   const [assignDraft, setAssignDraft] = useState(() =>
     lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : ""
@@ -454,7 +473,7 @@ export default function LeadDetailsModal({
   const followUpState = getFollowUpState(lead, now);
   const lostPromptErrors = (() => {
     if (!lostPrompt || !lostPrompt.submitted) return {};
-    const found = validateLostReason(lostPrompt.reason, lostPrompt.detail);
+    const found = validateLostReason(lostPrompt.reason, lostPrompt.detail, lostPrompt.status);
     return { lost_reason: found.choice, lost_detail: found.detail };
   })();
   const errors = validateDraft(draft, lead);
@@ -489,27 +508,23 @@ export default function LeadDetailsModal({
       document.getElementById("overview-psychologist")?.focus();
       return;
     }
-    if (newStatus === LOST_STATUS) {
-      setLostPrompt({ reason: "", detail: "", submitted: false });
+    if (isReasonRequired(newStatus)) {
+      setLostPrompt({ status: newStatus, reason: "", detail: "", submitted: false });
       return;
     }
     setLostPrompt(null);
     void saveStatus(newStatus, "");
   }
 
-  // Saves a status change. Leaving Lost clears the old reason; the timeline keeps it.
+  // Saves a status change. Moving into Not Interested / Lost Lead saves the reason; leaving one of them (only if the
+  // workflow ever allows it) clears the old reason, and the timeline keeps it.
   async function saveStatus(newStatus, reason) {
     statusSavingRef.current = true;
     setStatusSaving(true);
     setStatusError("");
 
-    const changes = { status: newStatus };
-    if (newStatus === LOST_STATUS) changes.not_converted_reason = reason;
-    else if (lead.status === LOST_STATUS) changes.not_converted_reason = "";
-    const text =
-      newStatus === LOST_STATUS
-        ? `Status changed from ${lead.status} to Lost. Reason: ${reason}`
-        : `Status changed from ${lead.status} to ${newStatus}`;
+    const changes = { status: newStatus, ...reasonChangeFor(lead.status, newStatus, reason) };
+    const text = statusChangeText(lead.status, newStatus, reason);
 
     let result = null;
     try {
@@ -530,13 +545,13 @@ export default function LeadDetailsModal({
   async function confirmLost(event) {
     event.preventDefault();
     if (!lostPrompt || statusSavingRef.current) return;
-    const errors = validateLostReason(lostPrompt.reason, lostPrompt.detail);
+    const errors = validateLostReason(lostPrompt.reason, lostPrompt.detail, lostPrompt.status);
     if (errors.choice || errors.detail) {
       setLostPrompt({ ...lostPrompt, submitted: true });
       document.getElementById(errors.choice ? "lost-lost_reason" : "lost-lost_detail")?.focus();
       return;
     }
-    const saved = await saveStatus(LOST_STATUS, buildLostReason(lostPrompt.reason, lostPrompt.detail));
+    const saved = await saveStatus(lostPrompt.status, buildLostReason(lostPrompt.reason, lostPrompt.detail));
     if (saved) setLostPrompt(null);
   }
 
@@ -633,9 +648,9 @@ export default function LeadDetailsModal({
       {
         status: draft.status,
         assigned_psychologist_id: draft.assigned_psychologist_id || null,
-        // Only touch the reason when Lost is involved, so other records keep whatever they already hold.
-        ...(draft.status === LOST_STATUS || lead.status === LOST_STATUS
-          ? { not_converted_reason: lostReasonFor(draft, lead) }
+        // Only touch the reason when a closed status is involved, so other records keep whatever they already hold.
+        ...(isReasonRequired(draft.status) || isReasonRequired(lead.status)
+          ? { not_converted_reason: closedReasonFor(draft, lead) }
           : {}),
         source: draft.source,
         contact_method: draft.contact_method,
@@ -794,28 +809,33 @@ export default function LeadDetailsModal({
                 <Field id="overview-status" label="Lead status">
                   <select
                     id="overview-status"
-                    value={lostPrompt ? LOST_STATUS : lead.status}
+                    value={lostPrompt ? lostPrompt.status : lead.status}
                     disabled={statusSaving || !canUpdateStatus || statusOptions(lead.status).length <= 1}
                     aria-describedby={statusError ? "overview-status-error" : undefined}
                     onChange={(event) => changeStatus(event.target.value)}
                   >
-                    {statusOptions(lead.status).map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
+                    <StatusOptions current={lead.status} />
                   </select>
                 </Field>
                 {!canUpdateStatus && <p className="subtle-text">Your role cannot change lead statuses.</p>}
                 {canUpdateStatus && statusOptions(lead.status).length <= 1 && (
                   <p className="subtle-text">{lead.status} is a final status.</p>
                 )}
+                {canUpdateStatus && confirmPathHint(lead.status) && <p className="subtle-text">{confirmPathHint(lead.status)}</p>}
 
                 {lostPrompt && (
-                  <form className="lost-prompt" noValidate onSubmit={confirmLost} aria-label="Mark lead as lost">
-                    <p className="lost-prompt-title">Why was this lead lost?</p>
+                  <form
+                    className="lost-prompt"
+                    noValidate
+                    onSubmit={confirmLost}
+                    aria-label={`Mark lead as ${lostPrompt.status}`}
+                  >
+                    <p className="lost-prompt-title">
+                      {lostPrompt.status === LOST_STATUS ? "Why was this lead lost?" : "Why is this lead not interested?"}
+                    </p>
                     <LostReasonFields
                       idPrefix="lost"
+                      label={reasonLabel(lostPrompt.status)}
                       reason={lostPrompt.reason}
                       detail={lostPrompt.detail}
                       disabled={statusSaving}
@@ -825,7 +845,7 @@ export default function LeadDetailsModal({
                     />
                     <div className="lost-prompt-actions">
                       <button type="submit" className="primary-button" disabled={statusSaving}>
-                        {statusSaving ? "Saving…" : "Mark as lost"}
+                        {statusSaving ? "Saving…" : lostPrompt.status === LOST_STATUS ? "Mark as lost" : "Mark as not interested"}
                       </button>
                       <button
                         type="button"
@@ -853,9 +873,9 @@ export default function LeadDetailsModal({
                   </p>
                 )}
 
-                {lead.status === LOST_STATUS && !lostPrompt && (
+                {isReasonRequired(lead.status) && !lostPrompt && (
                   <div className="lost-reason-box">
-                    <span>Lost reason</span>
+                    <span>{reasonLabel(lead.status)}</span>
                     <strong>{lead.not_converted_reason || "No reason recorded"}</strong>
                   </div>
                 )}
@@ -1237,23 +1257,22 @@ export default function LeadDetailsModal({
               </div>
 
               <div className="field-grid">
-                <Field id="edit-status" label="Status">
+                <Field id="edit-status" label="Status" hint={canUpdateStatus ? confirmPathHint(lead.status) || undefined : undefined}>
                   <select
                     {...props("status")}
                     value={draft.status}
                     disabled={!canUpdateStatus || statusOptions(lead.status).length <= 1}
                     onChange={onChange("status")}
                   >
-                    {statusOptions(lead.status).map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
+                    <StatusOptions current={lead.status} />
                   </select>
                 </Field>
 
-                {draft.status === LOST_STATUS && (
+                {isReasonRequired(draft.status) && (
                   <div className="field span-2">
                     <LostReasonFields
                       idPrefix="edit"
+                      label={reasonLabel(draft.status)}
                       reason={draft.lost_reason}
                       detail={draft.lost_detail}
                       disabled={!canUpdateStatus}

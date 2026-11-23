@@ -8,6 +8,7 @@ import Icon from "../../components/Icon";
 import Notice from "../../components/psychologists/Notice";
 import PsychologistForm from "../../components/psychologists/PsychologistForm";
 import PsychologistProfile from "../../components/psychologists/PsychologistProfile";
+import PsychologistWorkload from "../../components/psychologists/PsychologistWorkload";
 import BlockedPeriods from "../../components/scheduling/BlockedPeriods";
 import PsychologistShell from "../../components/psychologists/PsychologistShell";
 import useCurrentUser from "../../components/psychologists/useCurrentUser";
@@ -239,6 +240,8 @@ function PsychologistProfileView() {
             onManageAvailability={scrollToAvailability}
             onToggleActive={toggleProfileActive}
           />
+
+          <PsychologistWorkload psychologistId={psychologist.id} />
 
           <AvailabilitySchedule
             periods={periods}

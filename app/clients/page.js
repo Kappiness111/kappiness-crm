@@ -12,11 +12,14 @@ function ClientsView() {
   const { psychologistNames, toast } = useStaffContext();
 
   return (
-    <PsychologistShell activeId="Clients" crumbs={[{ label: "Clients" }]}>
+    <PsychologistShell activeId="Clients" crumbs={[{ label: "Confirmed Clients" }]}>
       <header className="page-head">
         <div>
-          <h1>Clients</h1>
-          <p>Confirmed leads become clients automatically. Each client has one primary psychologist.</p>
+          <h1>Confirmed Clients</h1>
+          <p>
+            Everyone who has become a client (a lead set to Confirmed with a psychologist). Open a client to see their appointments,
+            sessions and follow-ups. A client being confirmed is separate from an appointment being confirmed by the client.
+          </p>
         </div>
       </header>
       <ClientList psychologistNames={psychologistNames} onOpen={(client) => router.push(`/clients/${client.id}`)} />

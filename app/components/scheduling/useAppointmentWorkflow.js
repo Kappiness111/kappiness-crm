@@ -59,12 +59,13 @@ export default function useAppointmentWorkflow({ viewer, onChanged, notify }) {
       setDialog(next);
     } catch (error) {
       console.error("Failed to load scheduling data:", error);
-      notify(describeAppointmentError(error, "Could not load availability. Please try again."), "error");
+      notify(describeAppointmentError(error, "We couldn't load the available times. Please try again."), "error");
     }
   }
 
   // client: { id, full_name, primary_psychologist_id, ... } or null to choose from `clients`; recommendation optional
-  const openBooking = (client, recommendation = null, clients = []) => open({ mode: "book", client, recommendation, clients });
+  // preset (optional): { psychologistId, day: Date, slotStart: Date } from a schedule slot.
+  const openBooking = (client, recommendation = null, clients = [], preset = null) => open({ mode: "book", client, recommendation, clients, preset });
   const openReschedule = (appointment) => open({ mode: "reschedule", appointment });
 
   async function submit(values) {
@@ -76,7 +77,7 @@ export default function useAppointmentWorkflow({ viewer, onChanged, notify }) {
           psychologistId: values.psychologist_id,
           reason: values.reason,
         });
-        notify(`Rescheduled to ${formatDateTime(saved.starts_at)}. The original is kept as Rescheduled.`);
+        notify(`Moved to ${formatDateTime(saved.starts_at)}. The earlier time is now free.`);
       } else {
         saved = await bookAppointment({
           clientId: values.client_id,
@@ -110,7 +111,13 @@ export default function useAppointmentWorkflow({ viewer, onChanged, notify }) {
       else if (action === "attended") saved = await recordAttendance(item.id, true);
       else if (action === "missed") saved = await recordAttendance(item.id, false);
       else return;
-      notify(`Appointment marked ${saved.status}`);
+      notify(
+        saved.status === "Completed"
+          ? "Session marked as completed."
+          : saved.status === "Missed"
+            ? "Session marked as missed."
+            : "Client confirmation recorded."
+      );
       onChanged(saved);
     } catch (error) {
       console.error("Failed to update appointment:", error);
@@ -123,7 +130,7 @@ export default function useAppointmentWorkflow({ viewer, onChanged, notify }) {
   async function submitCancel(reason) {
     try {
       const saved = await cancelAppointment(cancelTarget.id, reason);
-      notify("Appointment cancelled. The slot is free again.");
+      notify("Appointment cancelled. The time is free for other bookings.");
       onChanged(saved);
       return { ok: true };
     } catch (error) {
@@ -139,6 +146,7 @@ export default function useAppointmentWorkflow({ viewer, onChanged, notify }) {
           mode={dialog.mode}
           lockedClient={dialog.client || null}
           clients={dialog.clients || []}
+          preset={dialog.preset || null}
           appointment={dialog.appointment || null}
           recommendation={dialog.recommendation || null}
           psychologists={data.psychologists}

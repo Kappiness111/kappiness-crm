@@ -15,13 +15,13 @@ import ClientDetails from "../components/clients/ClientDetails";
 import ClientList from "../components/clients/ClientList";
 import AvailabilityManager from "../components/scheduling/AvailabilityManager";
 import useAppointmentWorkflow from "../components/scheduling/useAppointmentWorkflow";
-import RecommendationsPanel from "../components/sessions/RecommendationsPanel";
+import FollowUpSessionsPanel from "../components/followups/FollowUpSessionsPanel";
 import SessionsPanel from "../components/sessions/SessionsPanel";
 import { PSYCHOLOGIST_NAV } from "../lib/navigation";
 import { addDays, addMonthsClamped, getVisibleRange, startOfDay } from "../lib/calendar";
 import { describeError } from "../lib/psychologists";
 import { getPsychologist, getPsychologistByAuthUser, listAvailability } from "../lib/psychologistsApi";
-import { fetchAppointments, recommendFollowUp, updateSessionStatus } from "../lib/psychologistAppointments";
+import { fetchAppointments, normalizeAppointment, recommendFollowUp, updateSessionStatus } from "../lib/psychologistAppointments";
 import { listClients } from "../lib/clientsApi";
 import { getStaffName } from "../lib/staff";
 
@@ -42,6 +42,7 @@ function PsychologistDashboard() {
   const [now, setNow] = useState(() => new Date());
   const [section, setSection] = useState("dashboard");
   const [clientId, setClientId] = useState(null); // client profile open in "My clients"
+  const [followUpFocus, setFollowUpFocus] = useState(null); // follow-up to open in "Follow-ups"
   const [loggingOut, setLoggingOut] = useState(false);
 
   // auth + profile: { status: "loading" | "ready" | "no-profile" | "error", user, psychologist, message }
@@ -233,7 +234,13 @@ function PsychologistDashboard() {
     const result = await updateSessionStatus(appointment.id, status, extra);
     setActionBusy(false);
     if (result.ok) {
-      notify(status === "cancelled" ? "Appointment cancelled. The slot is free again." : `Marked ${status}`);
+      notify(
+        status === "cancelled"
+          ? "Appointment cancelled. The time is free for other bookings."
+          : status === "completed"
+            ? "Session marked as completed."
+            : "Session marked as missed."
+      );
       setOpenAppointment(null);
       refreshAppointments();
     } else {
@@ -244,7 +251,7 @@ function PsychologistDashboard() {
   async function handleRecommend(values) {
     const result = await recommendFollowUp(values);
     if (result.ok) {
-      notify("Follow-up recommended. Staff will track it.");
+      notify("Follow-up recommended. The clinic team will arrange the booking with the client.");
       setOpenAppointment(null);
     }
     return result;
@@ -254,12 +261,12 @@ function PsychologistDashboard() {
     try {
       const clients = await listClients({ psychologistId });
       if (clients.length === 0) {
-        notify("You have no assigned clients yet. Staff assign clients when a lead is confirmed.", "error");
+        notify("You don't have any clients yet. The clinic team assigns clients to you.", "error");
         return;
       }
       workflow.openBooking(null, null, clients.filter((item) => item.is_active));
     } catch (error) {
-      notify(describeError(error, "Could not load your clients."), "error");
+      notify(describeError(error, "We couldn't load your clients. Please try again."), "error");
     }
   }
 
@@ -277,6 +284,7 @@ function PsychologistDashboard() {
   const navigate = useCallback((id, options = {}) => {
     setSection(id);
     setClientId(options.clientId || null);
+    setFollowUpFocus(options.focusId || null);
     setOpenAppointment(null);
     const params = new URLSearchParams();
     if (id !== "dashboard") params.set("section", id);
@@ -306,10 +314,10 @@ function PsychologistDashboard() {
     return (
       <div className={`${styles.scope} ${styles.fullCenter}`}>
         <div className={styles.fullCard} role={missing ? "status" : "alert"}>
-          <h1>{missing ? "No psychologist profile linked" : "Could not open your workspace"}</h1>
+          <h1>{missing ? "Your account isn't set up yet" : "We couldn't open your workspace"}</h1>
           <p>
             {missing
-              ? "This login is not linked to a psychologist profile, or you do not have access to it. Please ask your administrator to link your account."
+              ? "This login isn't linked to a psychologist profile yet. Please ask your clinic administrator to link your account."
               : auth.message}
           </p>
           {missing && PREVIEW_ENABLED && (
@@ -365,7 +373,15 @@ function PsychologistDashboard() {
         )}
 
         {section === "dashboard" && hasProfile && (
-          <PsychologistOverview psychologistId={psychologistId} name={name} now={now} onNavigate={(id) => navigate(id)} onOpenClient={openClient} />
+          <PsychologistOverview
+            key={apptTick}
+            psychologistId={psychologistId}
+            name={name}
+            now={now}
+            onNavigate={navigate}
+            onOpenClient={openClient}
+            onOpenAppointment={(row) => setOpenAppointment(normalizeAppointment(row))}
+          />
         )}
 
         {section === "clients" && hasProfile && !clientId && (
@@ -373,10 +389,10 @@ function PsychologistDashboard() {
             <header className="page-head">
               <div>
                 <h1>My clients</h1>
-                <p>Clients assigned to you. Open one for their history, sessions and follow-ups.</p>
+                <p>The clients you are working with. Open a profile to see their sessions, notes and follow-ups.</p>
               </div>
             </header>
-            <ClientList psychologistId={psychologistId} showPsychologist={false} onOpen={(client) => openClient(client.id)} />
+            <ClientList psychologistId={psychologistId} showPsychologist={false} psychologistView onOpen={(client) => openClient(client.id)} />
           </>
         )}
 
@@ -388,13 +404,13 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Appointments</h1>
-                <p>Your appointments by day, week or month, with your weekly availability shaded.</p>
+                <h1>Calendar</h1>
+                <p>Your appointments by day, week or month. Shaded times are your working hours; select an appointment to see its details.</p>
               </div>
               {hasProfile && (
                 <div className="page-actions">
                   <button type="button" className="btn btn-primary" onClick={bookFromCalendar}>
-                    <Icon name="plus" /> Book appointment
+                    <Icon name="plus" /> Book an appointment
                   </button>
                 </div>
               )}
@@ -404,8 +420,8 @@ function PsychologistDashboard() {
               <div className="notice" role="status">
                 <Icon name="info" />
                 <div>
-                  <strong>Appointments are not set up in the database yet</strong>
-                  The calendar shows your weekly availability. Appointments appear once the clinic applies the scheduling migration.
+                  <strong>Your appointments aren&apos;t available yet</strong>
+                  The calendar shows your working hours. Appointments will appear once the clinic has finished setting up scheduling.
                 </div>
               </div>
             )}
@@ -440,7 +456,10 @@ function PsychologistDashboard() {
             <header className="page-head">
               <div>
                 <h1>Sessions</h1>
-                <p>Record attendance after each appointment, add the session outcome and notes, and recommend follow-ups.</p>
+                <p>
+                  An appointment becomes a session once it takes place. After each one, mark it as completed or missed, add your
+                  notes, and recommend a follow-up if needed.
+                </p>
               </div>
             </header>
             <SessionsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
@@ -452,7 +471,10 @@ function PsychologistDashboard() {
             <header className="page-head">
               <div>
                 <h1>My availability</h1>
-                <p>Your weekly working periods (several per day, with breaks) and dates you are unavailable.</p>
+                <p>
+                  Set the hours you work each week and block dates when you are away. Clients can be booked in your working hours
+                  unless a time is already booked or blocked.
+                </p>
               </div>
             </header>
             <AvailabilityManager psychologistId={psychologistId} notify={notify} onChanged={() => setPeriodsTick((tick) => tick + 1)} />
@@ -463,11 +485,21 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Follow-up recommendations</h1>
-                <p>Your recommendations after sessions. Staff book them through the normal appointment process.</p>
+                <h1>Follow-ups</h1>
+                <p>
+                  Follow-ups you recommended after a session. A recommended follow-up becomes a scheduled session once a date and time
+                  are booked. The clinic team handles reminders and client confirmation.
+                </p>
               </div>
             </header>
-            <RecommendationsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
+            <FollowUpSessionsPanel
+              key={followUpFocus || "all"}
+              viewer={viewer}
+              psychologistId={psychologistId}
+              notify={notify}
+              onOpenClient={openClient}
+              initialFocusId={followUpFocus}
+            />
           </>
         )}
 
@@ -485,8 +517,11 @@ function PsychologistDashboard() {
           <>
             <header className="page-head">
               <div>
-                <h1>Profile</h1>
-                <p>Your details as held by the clinic. Contact an administrator to change them. Appearance is in Profile settings.</p>
+                <h1>My profile</h1>
+                <p>
+                  Your details as the clinic has them. To change them, contact your clinic administrator. To switch between light and dark
+                  mode, open Profile settings from your name at the top of the page.
+                </p>
               </div>
             </header>
             <section className="panel panel-pad">
@@ -495,9 +530,9 @@ function PsychologistDashboard() {
                 <dd>{psychologist.name || "—"}</dd>
                 <dt>Phone number</dt>
                 <dd>{psychologist.phone || "—"}</dd>
-                <dt>Account status</dt>
-                <dd>{psychologist.active ? "Active" : "Inactive"}</dd>
-                <dt>Login email</dt>
+                <dt>Status</dt>
+                <dd>{psychologist.active ? "Active: clients can be booked with you" : "Inactive: no new bookings"}</dd>
+                <dt>Sign-in email</dt>
                 <dd>{auth.user.email || "—"}</dd>
               </dl>
             </section>

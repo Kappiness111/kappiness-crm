@@ -191,9 +191,15 @@ export function describeError(error, fallback = "Something went wrong. Please tr
   if (code === "42501") return "You do not have permission to do this. Please ask your administrator to check access.";
   if (code === "PGRST116") return "Nothing was changed. The record may not exist, or you may not have permission to edit it.";
   if (code === "23505") return "A record with these details already exists.";
-  if (code === "23502") return "The database requires a value that this form cannot provide yet. This needs backend integration (see the note in the form).";
-  if (code === "23514") return "The database rejected these values. Please check them and try again.";
-  if (code === "42P01") return "A required table is not available in this environment.";
-  if (code === "PGRST204" || code === "42703") return "A column is missing in the database. Please ask the backend team to confirm the table structure.";
+  if (code === "23502") return "A required detail is missing, so this can't be saved yet. Please let your administrator know.";
+  if (code === "23514") return "One of these values isn't allowed. Please check them and try again.";
+  if (code === "42P01" || code === "PGRST204" || code === "42703") {
+    console.error("Database structure problem:", error);
+    return "This can't be saved yet because the database needs an update. Please let your administrator know.";
+  }
+  // Messages raised on purpose by the CRM's own database rules are written for people (for example overlapping
+  // working hours); raw PostgreSQL wording never is.
+  const message = (error && error.message) || "";
+  if (["P0001", "22023", "23P01"].includes(code) && message && !/violates|constraint|relation "|column "|syntax/i.test(message)) return message;
   return fallback;
 }

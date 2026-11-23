@@ -88,7 +88,7 @@ export default function PsychologistForm({ mode, psychologist, onSubmit, onClose
             ? psychologist.hasLogin
               ? "A login account is linked to this profile. Changing the link is managed by the authentication system, not this form."
               : "No login account is linked to this profile yet."
-            : "A login account cannot be created or linked from this screen. Linking an existing Supabase account to a psychologist needs a backend workflow, which is not available yet. This profile will be created without a login."}
+            : "Sign-in accounts can't be created or linked from this screen yet. This profile will be saved without a sign-in; your administrator can link one later."}
         </div>
 
         <label className="check-row">

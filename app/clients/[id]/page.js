@@ -14,7 +14,7 @@ function ClientView() {
   const { viewer, psychologists, notify, toast } = useStaffContext();
 
   return (
-    <PsychologistShell activeId="Clients" crumbs={[{ label: "Clients", href: "/clients" }, { label: "Client profile" }]}>
+    <PsychologistShell activeId="Clients" crumbs={[{ label: "Confirmed Clients", href: "/clients" }, { label: "Client profile" }]}>
       <ClientDetails
         key={id}
         clientId={id}

@@ -6,9 +6,11 @@ import Dialog from "../components/psychologists/Dialog";
 import Icon from "../components/Icon";
 import Notice from "../components/psychologists/Notice";
 import PsychologistForm from "../components/psychologists/PsychologistForm";
+import PsychologistsTabs from "../components/psychologists/PsychologistsTabs";
 import PsychologistShell from "../components/psychologists/PsychologistShell";
 import PsychologistTable from "../components/psychologists/PsychologistTable";
 import useCurrentUser from "../components/psychologists/useCurrentUser";
+import { loadWorkload } from "../lib/workload";
 import { canManagePsychologists, describeError, normalizePhone } from "../lib/psychologists";
 import {
   createPsychologist,
@@ -27,6 +29,7 @@ export default function PsychologistsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [availabilityError, setAvailabilityError] = useState(false);
+  const [workload, setWorkload] = useState(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -63,6 +66,22 @@ export default function PsychologistsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
+
+  // Workload (clients, upcoming sessions, follow-ups) is optional: the list works without it.
+  useEffect(() => {
+    let cancelled = false;
+    loadWorkload()
+      .then((result) => {
+        if (!cancelled) setWorkload(result.byId);
+      })
+      .catch((err) => {
+        console.error("Failed to load workload:", err);
+        if (!cancelled) setWorkload({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function retry() {
     setLoading(true);
@@ -153,6 +172,7 @@ export default function PsychologistsPage() {
 
   return (
     <PsychologistShell crumbs={[{ label: "Psychologists" }]}>
+      <PsychologistsTabs active="psychologists" />
       <header className="page-head">
         <div>
           <h1>Psychologists</h1>
@@ -231,6 +251,7 @@ export default function PsychologistsPage() {
           error={error}
           availabilityByPsychologist={availabilityByPsychologist}
           availabilityUnavailable={availabilityError}
+          workload={workload}
           hasAnyRecords={total > 0}
           canManage={canManage}
           busyIds={busyIds}

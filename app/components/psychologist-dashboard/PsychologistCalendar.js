@@ -70,12 +70,13 @@ export default function PsychologistCalendar({
             {effectiveView === "month" && <CalendarMonthView {...common} />}
 
             <div className={styles.gridLegend} aria-label="Legend">
-              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swSession}`} /> Session</span>
-              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swFollow}`} /> Follow-up</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swSession}`} /> Appointment</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swFollow}`} /> Follow-up session</span>
               <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swDone}`} /> Completed</span>
               <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swCancelled}`} /> Cancelled</span>
               <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swMissed}`} /> Missed</span>
-              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swAvailable}`} /> Recurring availability</span>
+              <span className={styles.legendItem}><span className={`${styles.swatch} ${styles.swAvailable}`} /> Your working hours</span>
+              <span className={styles.legendItem}>Unshaded times are outside your working hours</span>
             </div>
           </>
         )}
@@ -86,15 +87,19 @@ export default function PsychologistCalendar({
           <div>
             <h3 className={styles.dayPanelTitle}>{formatLongDate(selected)}</h3>
             <p className={styles.dayPanelSub}>
-              {supported ? `${dayItems.length} session${dayItems.length === 1 ? "" : "s"}` : "Appointment data not connected"}
+              {supported
+                ? dayItems.length
+                  ? `${dayItems.length} appointment${dayItems.length === 1 ? "" : "s"}`
+                  : "No appointments"
+                : "Appointments are not available yet"}
             </p>
           </div>
 
           <div>
-            <p className={styles.sectionLabel}>Schedule</p>
+            <p className={styles.sectionLabel}>Appointments</p>
             {dayItems.length === 0 ? (
               <p className={styles.emptyNote}>
-                {supported ? "No sessions on this day." : "Sessions will appear here once appointment data is connected."}
+                {supported ? "No appointments on this day." : "Your appointments will appear here once scheduling is set up."}
               </p>
             ) : (
               <ul className={styles.list}>
@@ -108,7 +113,7 @@ export default function PsychologistCalendar({
           </div>
 
           <div>
-            <p className={styles.sectionLabel}>Recurring availability</p>
+            <p className={styles.sectionLabel}>Your working hours</p>
             <AvailabilitySummary
               periods={periods}
               loading={periodsLoading}

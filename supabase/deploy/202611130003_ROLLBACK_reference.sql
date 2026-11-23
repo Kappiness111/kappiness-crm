@@ -1,0 +1,115 @@
+-- Kappiness CRM: ROLLBACK REFERENCE for production deployment 202611130003. Handwritten (not generated).
+--
+-- EVERY STATEMENT BELOW IS COMMENTED OUT. Running this file as-is does nothing.
+-- To use an option: copy ONLY that option into a new SQL Editor query, remove the leading "-- " from its lines,
+-- review it, and run it. Then run 202611130003_03_postdeploy_report.sql to see the resulting state.
+--
+-- PRINCIPLES
+--   * Prefer rolling FORWARD (fix data or add a corrective migration) over rolling back.
+--   * NEVER restore the 202611040001 helper bodies (JWT role / "no psychologist profile" = staff).
+--   * NEVER restore anon privileges on psychologists or psychologist_availability.
+--   * A failed deployment needs NO rollback: it is one transaction, and the preflight / post-checks abort it
+--     before COMMIT. Confirm with 202611130003_01_preflight_report.sql (all rows ok = unchanged).
+--
+-- Post-deployment fingerprints (md5 of prosrc without CR) for reference:
+--   is_crm_staff() 118729f257dd10574d5f8dc094730d47   is_crm_admin() ffeeb94c72b32b034071875ea7606eae
+
+-- =====================================================================================================
+-- OPTION 0 (most likely need): a real staff member lost access. Fix the DATA, not the helper.
+-- =====================================================================================================
+-- INSERT INTO public.crm_staff_members (user_id, access_level, is_active)
+-- VALUES ('<auth user id>', 'staff', true)
+-- ON CONFLICT (user_id) DO UPDATE SET is_active = true;
+
+-- =====================================================================================================
+-- OPTION A: stop reminder automation, KEEP all reminder data and history (safe, reversible).
+-- Booking / rescheduling / cancelling then behave exactly as before the deployment.
+-- Re-enable later by re-running the two CREATE TRIGGER statements from 202611130002 section 4.
+-- =====================================================================================================
+-- BEGIN;
+-- DROP TRIGGER IF EXISTS appointments_create_reminders ON public.appointments;
+-- DROP TRIGGER IF EXISTS appointments_cancel_pending_reminders ON public.appointments;
+-- COMMIT;
+
+-- =====================================================================================================
+-- OPTION B: remove reminder tracking completely. DESTROYS reminder history. Export it first:
+--   SELECT * FROM public.appointment_reminders;  SELECT * FROM public.appointment_reminder_events;
+-- =====================================================================================================
+-- BEGIN;
+-- DROP TRIGGER IF EXISTS appointments_create_reminders ON public.appointments;
+-- DROP TRIGGER IF EXISTS appointments_cancel_pending_reminders ON public.appointments;
+-- DROP FUNCTION IF EXISTS public.record_reminder_delivery(uuid, text, timestamptz, text),
+--   public.record_reminder_response(uuid, text, text, timestamptz),
+--   public.update_reminder_due_at(uuid, timestamptz, text),
+--   public.set_reminder_offsets(interval, interval);
+-- DROP TABLE IF EXISTS public.appointment_reminder_events, public.appointment_reminders,
+--   public.appointment_reminder_settings;
+-- DROP FUNCTION IF EXISTS public.appointment_reminders_on_appointment_insert(),
+--   public.appointment_reminders_on_appointment_status(), public._create_appointment_reminders(uuid),
+--   public.appointment_reminders_before_write(), public.appointment_reminders_log_event(),
+--   public.appointment_reminders_block_delete(), public._assert_crm_staff_member(boolean);
+-- COMMIT;
+
+-- =====================================================================================================
+-- OPTION C: the availability guard blocks a legitimate flow. Remove only the restrictive policy (the 9
+-- permissive policies remain and are safe because is_crm_staff() is membership-based).
+-- =====================================================================================================
+-- BEGIN;
+-- DROP POLICY IF EXISTS availability_require_staff_or_owner ON public.psychologist_availability;
+-- COMMIT;
+-- -- is_own_psychologist(uuid) may stay (nothing else depends on it); to remove it as well:
+-- DROP FUNCTION IF EXISTS public.is_own_psychologist(uuid);
+
+-- =====================================================================================================
+-- OPTION D: the new helper bodies misbehave. Fall back to the last known-SAFE live definition
+-- (live_function_definitions.csv, 4 Nov 2026): still membership-based, only the search_path differs.
+-- =====================================================================================================
+-- BEGIN;
+-- CREATE OR REPLACE FUNCTION public.is_crm_staff()
+-- RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+-- AS $$
+--   SELECT auth.uid() IS NOT NULL
+--      AND EXISTS (SELECT 1 FROM public.crm_staff_members AS staff
+--                  WHERE staff.user_id = auth.uid() AND staff.is_active = true);
+-- $$;
+-- -- Admin off for everyone (session notes: treating psychologist only, exactly as before the deployment):
+-- CREATE OR REPLACE FUNCTION public.is_crm_admin()
+-- RETURNS boolean LANGUAGE sql STABLE SET search_path = public AS $$ SELECT false $$;
+-- REVOKE ALL ON FUNCTION public.is_crm_staff(), public.is_crm_admin() FROM PUBLIC, anon;
+-- GRANT EXECUTE ON FUNCTION public.is_crm_staff(), public.is_crm_admin() TO authenticated;
+-- COMMIT;
+
+-- =====================================================================================================
+-- OPTION F: reverse the admin assignment (PART 2) for some or all of the 4 members: access_level -> 'staff'.
+-- Prior levels: the read-only production audit (13 Nov 2026) found zero admin memberships; the actual levels just
+-- before the deployment were recorded in preflight row 18 ("access levels now"). Check that output before choosing
+-- which ids to demote; this file does not assume any specific previous level.
+-- Only access_level changes: user_id, is_active, created_*, inactive rows and psychologists stay untouched.
+-- Effect: those users keep full staff access (is_crm_staff() is unaffected) but lose admin: no reading/writing of
+-- other psychologists' clinical session notes, no set_reminder_offsets.
+-- 1. List the members (ids only):   SELECT user_id, access_level, is_active FROM public.crm_staff_members ORDER BY created_at;
+-- 2. Put the ids to demote in the array below. The placeholders are not valid uuids, so running this unedited fails.
+--    The block refuses to commit unless exactly one row per listed id changed.
+-- 3. Afterwards: 202611130003_03_postdeploy_report.sql row E1 will show not_admin > 0 (expected after this option).
+-- =====================================================================================================
+-- BEGIN;
+-- DO $$
+-- DECLARE
+--   ids uuid[] := ARRAY['<user_id 1>', '<user_id 2>', '<user_id 3>', '<user_id 4>']::uuid[];
+--   n integer;
+-- BEGIN
+--   UPDATE public.crm_staff_members SET access_level = 'staff'
+--    WHERE user_id = ANY (ids) AND is_active = true AND access_level = 'admin';
+--   GET DIAGNOSTICS n = ROW_COUNT;
+--   IF n <> cardinality(ids) THEN
+--     RAISE EXCEPTION 'Expected to demote % membership(s), would demote %. Nothing changed.', cardinality(ids), n;
+--   END IF;
+--   RAISE NOTICE 'Demoted % membership(s) from admin to staff.', n;
+-- END
+-- $$;
+-- COMMIT;
+
+-- =====================================================================================================
+-- OPTION E: a removed privilege is proven necessary. Restore it for authenticated ONLY, never for anon, e.g.:
+-- =====================================================================================================
+-- GRANT TRUNCATE ON public.services TO authenticated;

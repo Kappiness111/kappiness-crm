@@ -2,7 +2,8 @@
 -- live state of 4 Nov 2026, i.e. the state the deployment bundle will start from on production.
 -- Owner: Aswathy (backend / testing).
 --
--- TARGET: the separate, EMPTY Supabase project kappiness-crm-test ONLY. Never production.
+-- TARGET: a disposable, EMPTY Supabase-compatible database ONLY (the hosted kappiness-crm-test project was
+-- retired 13 Nov 2026; see supabase/test-bootstrap/README.md). Never production.
 -- Runs after step 1 (01_baseline_from_snapshot.sql) and step 2 (202611030001_crm_staff_membership_rls.sql).
 --
 -- WHERE EACH PART COMES FROM

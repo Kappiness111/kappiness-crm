@@ -1,8 +1,10 @@
 -- Kappiness CRM TEST BOOTSTRAP, step 4 of 4: read-only verification. Changes nothing (ends with ROLLBACK).
 -- Owner: Aswathy (backend / testing).
 --
+-- (13 Nov 2026: the bundle is retired; "pre-bundle" below = the state before 202611030002 + 202611040001, which
+-- the production path in README.md applies next. The checks themselves are unchanged.)
 -- Confirms the test project is in the live pre-bundle state and empty, so the deployment bundle and the
--- three SQL suites start from the same place they will on production:
+-- four SQL suites start from the same place they will on production:
 --   * every public table is empty; auth.users is empty; crm_staff_members has ZERO rows
 --   * the live functions are present with the live bodies, settings and grants
 --   * the objects the five bundle files require are present; the objects the bundle creates are absent

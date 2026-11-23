@@ -102,7 +102,7 @@ export default function BlockedPeriods({ psychologistId, canManage = true, notif
       <div className="section-head">
         <div>
           <h2 id="blocked-title">Blocked dates</h2>
-          <p>Leave and other unavailable periods. Existing appointments are never cancelled or moved automatically.</p>
+          <p>Days or hours when you are away, for example leave or training. Nobody can be booked at these times. Existing appointments are never cancelled or moved for you.</p>
         </div>
       </div>
 
@@ -116,7 +116,7 @@ export default function BlockedPeriods({ psychologistId, canManage = true, notif
             </button>
           </div>
         )}
-        {state === "ready" && blocks.length === 0 && <p className="appt-empty">No upcoming blocked periods.</p>}
+        {state === "ready" && blocks.length === 0 && <p className="appt-empty">No blocked dates coming up.</p>}
         {state === "ready" && blocks.length > 0 && (
           <ul className="list">
             {blocks.map((block) => (
@@ -197,7 +197,7 @@ export default function BlockedPeriods({ psychologistId, canManage = true, notif
             )}
             <div>
               <button type="submit" className="btn btn-primary" disabled={busy}>
-                {busy ? "Checking…" : "Block period"}
+                {busy ? "Checking…" : "Block these dates"}
               </button>
             </div>
           </form>
