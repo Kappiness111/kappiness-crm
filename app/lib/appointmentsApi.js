@@ -104,6 +104,33 @@ export function bookAppointment(values) {
   });
 }
 
+// Day 23: converts an eligible lead in ONE database transaction (convert_lead_to_appointment, migration
+// 20261123223548): lead -> Confirmed with history, follow-up date cleared (the old date is kept in the history),
+// client created, first appointment and session booked. If any step fails, nothing is saved.
+// values: { leadId, expectedStatus, psychologistId, serviceId, startsAt (Date|ISO), notes? }
+// Resolves to { lead, clientId, sessionId, appointment } (appointment is null if only the re-read failed).
+export async function convertLeadToAppointment(values) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("convert_lead_to_appointment", {
+    p_lead_id: values.leadId,
+    p_expected_status: values.expectedStatus,
+    p_psychologist_id: values.psychologistId,
+    p_service_id: values.serviceId,
+    p_starts_at: new Date(values.startsAt).toISOString(),
+    p_notes: values.notes || null,
+  });
+  if (error) throw error;
+  if (!data || !data.ok || !data.lead || !data.appointment_id) throw new Error("The database returned an empty response.");
+  // The conversion is already committed here, so a failed re-read must not be reported as a failed conversion.
+  let appointment = null;
+  try {
+    appointment = await getAppointment(data.appointment_id);
+  } catch (readError) {
+    console.error("Converted, but the new appointment could not be re-read:", readError);
+  }
+  return { lead: data.lead, clientId: data.client_id, sessionId: data.session_id, appointment };
+}
+
 export function confirmAppointment(id) {
   return rpc("confirm_appointment", { p_appointment_id: id });
 }

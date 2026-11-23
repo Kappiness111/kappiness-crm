@@ -14,11 +14,14 @@ import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
    - Slots come from the psychologist's weekly periods (several per day, breaks respected), the service's
      duration and buffer, existing active bookings and blocked periods.
    - Rescheduling keeps the original record (it becomes Rescheduled) and books a new Scheduled appointment.
+   - Converting a lead (Day 23) uses the same picker: on save, one database transaction confirms the lead, creates or
+     links its client profile and books this first appointment and its session. Nothing is saved if any part fails.
    The database checks every rule again when saving. */
 export default function BookingModal({
-  mode = "book", // "book" | "reschedule"
+  mode = "book", // "book" | "reschedule" | "convert"
   clients = [], // clients this user may book for
   lockedClient = null, // booking for a known client: the client is fixed
+  lead = null, // mode "convert": the lead being converted (not a client yet)
   appointment = null, // the appointment being rescheduled
   recommendation = null, // booking from a follow-up recommendation
   preset = null, // { psychologistId, serviceId, day, slotStart } when opened from a schedule slot
@@ -32,6 +35,7 @@ export default function BookingModal({
   onSubmit,
 }) {
   const reschedule = mode === "reschedule" && appointment;
+  const convert = mode === "convert" && lead;
   const today = startOfDay(now || new Date());
 
   const [clientId, setClientId] = useState(() => {
@@ -47,14 +51,14 @@ export default function BookingModal({
     if (reschedule && canUse(appointment.psychologist_id)) return String(appointment.psychologist_id);
     if (recommendation && canUse(recommendation.psychologist_id)) return String(recommendation.psychologist_id);
     if (preset && canUse(preset.psychologistId)) return String(preset.psychologistId);
-    const primary = (lockedClient || {}).primary_psychologist_id;
+    const primary = lockedClient ? lockedClient.primary_psychologist_id : convert ? lead.assigned_psychologist_id : null;
     if (canUse(primary)) return String(primary);
     return psychologists.length === 1 ? String(psychologists[0].id) : "";
   });
   const [serviceId, setServiceId] = useState(() => {
     if (reschedule && appointment.service_id) return String(appointment.service_id);
     if (preset && preset.serviceId && services.some((item) => String(item.id) === String(preset.serviceId))) return String(preset.serviceId);
-    const interest = client && client.service_interest;
+    const interest = (client || (convert ? lead : null) || {}).service_interest;
     const match = interest && services.find((item) => item.name === interest);
     if (match) return String(match.id);
     return services.length === 1 ? String(services[0].id) : "";
@@ -97,7 +101,7 @@ export default function BookingModal({
   const slots = day && ready ? slotsForDay(periods, day, appointments, slotOptions) : [];
 
   const errors = {};
-  if (!clientId) errors.client = "Choose a client.";
+  if (!clientId && !convert) errors.client = "Choose a client.";
   if (!psychologistId) errors.psychologist = "Choose a psychologist.";
   if (!reschedule && !serviceId) errors.service = "Choose a service.";
   if (!slotStart) errors.slot = "Pick a date and a time slot.";
@@ -144,8 +148,9 @@ export default function BookingModal({
     setSaving(true);
     setError("");
     const result = await onSubmit({
-      client_id: clientId,
-      lead_id: client ? client.lead_id : null,
+      client_id: convert ? null : clientId,
+      lead_id: convert ? lead.id : client ? client.lead_id : null,
+      expected_status: convert ? lead.status : null,
       psychologist_id: psychologistId,
       service_id: serviceId || null,
       starts_at: chosen.start.toISOString(),
@@ -165,22 +170,29 @@ export default function BookingModal({
   // Review of what will be saved, shown once a time is picked.
   const chosenSlot = slotStart ? slots.find((slot) => slot.start.toISOString() === slotStart) : null;
   const psychologistName = (psychologists.find((item) => String(item.id) === psychologistId) || {}).name || "";
-  const clientName = client ? client.full_name : appointment ? appointment.client_name : "";
+  const clientName = convert ? lead.full_name : client ? client.full_name : appointment ? appointment.client_name : "";
   const when = (start, end) =>
     `${start.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}, ${formatClock(start)} – ${formatClock(end)}`;
 
-  const title = reschedule ? "Reschedule appointment" : recommendation ? "Book recommended follow-up" : "Book appointment";
+  const title = reschedule
+    ? "Reschedule appointment"
+    : convert
+      ? "Confirm lead and book appointment"
+      : recommendation
+        ? "Book recommended follow-up"
+        : "Book appointment";
+  const subtitle = reschedule
+    ? "The original appointment is kept as Rescheduled and a new one is booked."
+    : convert
+      ? "Confirms this lead, creates its client profile and books the first session in one step. If any part fails, nothing is saved."
+      : "Choose a client, a psychologist, a service and a free time. New bookings wait for the client's confirmation.";
 
   return (
     <ModalShell labelledBy="booking-title" onRequestClose={saving ? () => {} : onClose} size="lg">
       <header className="modal-head">
         <div>
           <h2 id="booking-title">{title}</h2>
-          <p>
-            {reschedule
-              ? "The original appointment is kept as Rescheduled and a new one is booked."
-              : "Choose a client, a psychologist, a service and a free time. New bookings wait for the client's confirmation."}
-          </p>
+          <p>{subtitle}</p>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close" disabled={saving}>
           <Icon name="close" />
@@ -209,8 +221,10 @@ export default function BookingModal({
           )}
 
           <div className="field-grid">
-            <Field id="booking-client" label="Client" required error={visible("client")}>
-              {lockedClient || reschedule || recommendation ? (
+            <Field id="booking-client" label={convert ? "Lead" : "Client"} required error={visible("client")}>
+              {convert ? (
+                <input id="booking-client" value={`${lead.full_name}${lead.lead_code ? ` · ${lead.lead_code}` : ""}`} readOnly />
+              ) : lockedClient || reschedule || recommendation ? (
                 <input id="booking-client" value={client ? client.full_name : appointment ? appointment.client_name : ""} readOnly />
               ) : (
                 <>
@@ -367,10 +381,33 @@ export default function BookingModal({
             <div className="booking-review" role="status" aria-live="polite">
               <strong>{reschedule ? "Please check the new time" : "Please check before booking"}</strong>
               <dl>
-                <dt>Client</dt>
+                <dt>{convert ? "Lead" : "Client"}</dt>
                 <dd>{clientName || "—"}</dd>
+                {convert ? (
+                  <>
+                    <dt>Lead status</dt>
+                    <dd>
+                      {lead.status} → <strong>Confirmed</strong>
+                    </dd>
+                    <dt>Client profile</dt>
+                    <dd>Created from the lead&apos;s details (the lead and its history are kept)</dd>
+                    {lead.next_follow_up_at ? (
+                      <>
+                        <dt>Follow-up call</dt>
+                        <dd>
+                          <s>{formatDateTime(lead.next_follow_up_at)}</s> <span className="muted">(cleared; kept in the lead history)</span>
+                        </dd>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
                 <dt>Psychologist</dt>
-                <dd>{psychologistName || "—"}</dd>
+                <dd>
+                  {psychologistName || "—"}
+                  {convert && lead.assigned_psychologist_id && String(lead.assigned_psychologist_id) !== psychologistId ? (
+                    <span className="muted"> (replaces the psychologist currently assigned to this lead)</span>
+                  ) : null}
+                </dd>
                 {!reschedule && service ? (
                   <>
                     <dt>Service</dt>
@@ -395,7 +432,9 @@ export default function BookingModal({
               <small className="muted">
                 {reschedule
                   ? "The original appointment is kept in the history as Rescheduled."
-                  : "The appointment starts as awaiting client confirmation."}{" "}
+                  : convert
+                    ? "The lead, client profile and appointment are saved together or not at all. The appointment starts as awaiting client confirmation."
+                    : "The appointment starts as awaiting client confirmation."}{" "}
                 The time is checked again when you save.
               </small>
             </div>
@@ -413,7 +452,7 @@ export default function BookingModal({
             Cancel
           </button>
           <button type="submit" className="primary-button" disabled={saving}>
-            {saving ? "Saving…" : reschedule ? "Reschedule" : "Book appointment"}
+            {saving ? "Saving…" : reschedule ? "Reschedule" : convert ? "Confirm and book" : "Book appointment"}
           </button>
         </div>
       </form>

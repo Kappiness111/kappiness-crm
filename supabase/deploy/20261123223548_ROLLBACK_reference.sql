@@ -1,0 +1,46 @@
+-- Kappiness CRM Day 23: ROLLBACK REFERENCE for migration 20261123223548_convert_lead_to_appointment.sql.
+-- Handwritten. Every statement is commented out: running this file unedited does nothing.
+--
+-- PRINCIPLES
+--   * A FAILED deployment needs no rollback: the migration is one transaction with a preflight and post-checks, so
+--     any failure leaves the database exactly as before.
+--   * The migration only ADDS one function. It changes no table, trigger, constraint, policy, data or other
+--     function, so the Day 21 workflow, ordinary booking and rescheduling are unaffected by it and by its removal.
+--   * Prefer rolling FORWARD (a corrective CREATE OR REPLACE) over removing the function.
+--
+-- OPTION A: stop new conversions (database side). Safe at any time.
+--   Do this together with option C (or before it): the app's "Confirm and book" buttons call this RPC. Without it
+--   the call fails cleanly (PGRST202 -> "Scheduling isn't set up yet"), nothing is saved, and staff can still
+--   confirm manually and book through the existing Book flow.
+--
+-- BEGIN;
+-- DROP FUNCTION IF EXISTS public.convert_lead_to_appointment(uuid, text, uuid, uuid, timestamptz, text);
+-- NOTIFY pgrst, 'reload schema';
+-- COMMIT;
+--
+-- Verify (read-only): SELECT to_regprocedure('public.convert_lead_to_appointment(uuid,text,uuid,uuid,timestamptz,text)');
+--   -> NULL
+--
+-- OPTION B: data written by conversions that already happened. NOT rolled back automatically, on purpose.
+--   A conversion produces ordinary, valid records: the lead is Confirmed (a final status), its client exists
+--   (clients cannot be deleted: FK ON DELETE RESTRICT), and the appointment/session/history rows are the same as a
+--   manual confirm + booking. To undo one conversion for a client, use the normal app actions:
+--     - cancel the appointment (cancel_appointment: keeps the record, frees the slot, cancels the session);
+--     - the lead stays Confirmed and keeps its history, including the "Follow up cleared on conversion (was ...)"
+--       entry, which holds the previous follow-up date if it needs to be re-entered on a new lead.
+--   Read-only list of conversions for review. All rows of one conversion share one transaction timestamp (now()),
+--   so a conversion is a "... to Confirmed" status row and an "Appointment booked" row with the same created_at.
+--   A manual confirm followed by a separate booking is two transactions and does not match.
+--
+-- SELECT l.id, l.lead_code, l.full_name, s.created_at AS converted_at
+-- FROM public.lead_activities AS s
+-- JOIN public.lead_activities AS b
+--   ON b.lead_id = s.lead_id AND b.created_at = s.created_at AND b.notes LIKE 'Appointment booked:%'
+-- JOIN public.leads AS l ON l.id = s.lead_id
+-- WHERE s.activity_type = 'Status change' AND s.notes LIKE '% to Confirmed'
+-- ORDER BY s.created_at DESC;
+--
+-- OPTION C: app side. Revert the Day 23 app changes (app/components/BookingModal.js, LeadDetailsModal.js,
+--   app/lib/appointmentsApi.js, app/lib/leads.js, the conversion parts of app/page.js) in the same release as
+--   option A, so no button calls a missing RPC. The Day 22 Follow Ups filters in app/page.js are independent and
+--   can stay.
