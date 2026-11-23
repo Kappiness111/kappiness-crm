@@ -22,6 +22,7 @@ import {
   bookAppointment,
   cancelAppointment,
   confirmAppointment,
+  convertLeadToAppointment,
   describeAppointmentError,
   getAppointment,
   isMissingBackend,
@@ -51,6 +52,8 @@ import {
   SOURCES,
   STATUSES,
   UNCONFIRMED_STATUSES,
+  canConvertLead,
+  confirmPathHint,
   describeLeadError,
   dueLabel,
   formatDate,
@@ -86,6 +89,20 @@ function mapLeadRecord(record) {
     notes: record.notes || "",
     activity: Array.isArray(record.activity) ? record.activity : [],
   };
+}
+
+// Search used by the Leads list and the Follow Ups view: name, email, lead ID, source, staff, service, and the
+// phone number with spaces ignored.
+function leadMatchesSearch(lead, query) {
+  const term = query.trim().toLowerCase();
+  if (!term) return true;
+  const normalizedTerm = term.replace(/\s+/g, "");
+  const normalizedPhone = (lead.phone || "").replace(/\s+/g, "").toLowerCase();
+  return (
+    [lead.full_name, lead.email, lead.lead_code, lead.source, lead.assigned_staff, lead.service_interest].some((field) =>
+      (field || "").toLowerCase().includes(term)
+    ) || normalizedPhone.includes(normalizedTerm)
+  );
 }
 
 // Columns we read from public.lead_activities (no invented columns).
@@ -210,6 +227,10 @@ export default function DashboardPage() {
   const [dashTab, setDashTab] = useState("appointments"); // schedule card tab
   const [reportTab, setReportTab] = useState("leads"); // leads | followups
   const [dashSearch, setDashSearch] = useState("");
+  // Follow Ups view filters (Day 22). They narrow the grouped lists only; the summary cards keep the totals.
+  const [followUpSearch, setFollowUpSearch] = useState("");
+  const [followUpStatus, setFollowUpStatus] = useState("All");
+  const [followUpStaff, setFollowUpStaff] = useState("All"); // "All" | "" (unassigned) | staff name
 
   useEffect(() => {
     let cancelled = false;
@@ -427,6 +448,29 @@ export default function DashboardPage() {
     groups.upcoming.sort(byDate);
     return groups;
   }, [leads, now]);
+
+  // The same groups, narrowed by the Follow Ups toolbar. `followUps` itself stays unfiltered: the dashboard,
+  // notifications and summary cards read it.
+  const followUpsFiltered = useMemo(() => {
+    const keep = (lead) =>
+      leadMatchesSearch(lead, followUpSearch) &&
+      (followUpStatus === "All" || lead.status === followUpStatus) &&
+      (followUpStaff === "All" || (lead.assigned_staff || "").trim() === followUpStaff);
+    return {
+      overdue: followUps.overdue.filter(keep),
+      today: followUps.today.filter(keep),
+      upcoming: followUps.upcoming.filter(keep),
+      unscheduled: followUps.unscheduled.filter(keep),
+    };
+  }, [followUps, followUpSearch, followUpStatus, followUpStaff]);
+  const followUpTotal =
+    followUps.overdue.length + followUps.today.length + followUps.upcoming.length + followUps.unscheduled.length;
+  const followUpShown =
+    followUpsFiltered.overdue.length +
+    followUpsFiltered.today.length +
+    followUpsFiltered.upcoming.length +
+    followUpsFiltered.unscheduled.length;
+  const followUpFiltersActive = Boolean(followUpSearch.trim()) || followUpStatus !== "All" || followUpStaff !== "All";
 
   const leadsById = useMemo(() => new Map(leads.map((lead) => [lead.id, lead])), [leads]);
   const appointmentsByLead = useMemo(() => {
@@ -658,28 +702,9 @@ export default function DashboardPage() {
   }, [now, dashRange, dashScope, leads, myLeadIds, appointments, psychologistNames]);
 
 const filteredLeads = useMemo(() => {
-  const term = search.trim().toLowerCase();
-  const normalizedTerm = term.replace(/\s+/g, "");
-
   return leads
     .filter((lead) => {
-      const normalizedPhone = (lead.phone || "")
-        .replace(/\s+/g, "")
-        .toLowerCase();
-
-      const matchesSearch =
-        !term ||
-        [
-          lead.full_name,
-          lead.email,
-          lead.lead_code,
-          lead.source,
-          lead.assigned_staff,
-          lead.service_interest,
-        ].some((field) =>
-          (field || "").toLowerCase().includes(term)
-        ) ||
-        normalizedPhone.includes(normalizedTerm);
+      const matchesSearch = leadMatchesSearch(lead, search);
 
       const matchesStatus =
         statusFilter === "All" || lead.status === statusFilter;
@@ -1162,6 +1187,20 @@ const filteredLeads = useMemo(() => {
     setBookingDialog({ mode: "book" });
   }
 
+  // Day 23: confirm an eligible lead and book its first appointment in one database transaction.
+  function openConversion(lead) {
+    closeLeadDetails();
+    if (!canEditStatuses) {
+      flash("You do not have permission to change lead statuses.", "error");
+      return;
+    }
+    if (!canConvertLead(lead.status)) {
+      flash(`A ${lead.status} lead cannot be confirmed directly. ${confirmPathHint(lead.status)}`.trim(), "error");
+      return;
+    }
+    setBookingDialog({ mode: "convert", lead });
+  }
+
   function openReschedule(appointment) {
     closeLeadDetails();
     setBookingDialog({ mode: "reschedule", appointment });
@@ -1185,6 +1224,29 @@ const filteredLeads = useMemo(() => {
 
     try {
       const doctor = psychologistNames[values.psychologist_id] || "the psychologist";
+      if (dialog.mode === "convert") {
+        if (!canEditStatuses) return { ok: false, message: "You do not have permission to change lead statuses." };
+        const result = await convertLeadToAppointment({
+          leadId: dialog.lead.id,
+          expectedStatus: values.expected_status,
+          psychologistId: values.psychologist_id,
+          serviceId: values.service_id,
+          startsAt: values.starts_at,
+          notes: values.notes,
+        });
+        // The lead is now Confirmed; the clients list reloads itself when the Confirmed count changes.
+        const savedLead = mapLeadRecord({ ...result.lead, activity: dialog.lead.activity });
+        setLeads((current) => current.map((item) => (item.id === savedLead.id ? savedLead : item)));
+        setActivityRevisions((current) => ({ ...current, [savedLead.id]: (current[savedLead.id] || 0) + 1 }));
+        if (result.appointment) storeAppointment(result.appointment);
+        else setSchedulingReload((value) => value + 1);
+        pushNotification(`${savedLead.full_name}: confirmed and booked for ${formatDateTime(values.starts_at)} with ${doctor}`);
+        flash(`${savedLead.full_name} confirmed, client profile created and appointment booked`);
+        const convertedAt = new Date(values.starts_at);
+        setCalAnchor(new Date(convertedAt.getFullYear(), convertedAt.getMonth(), 1));
+        setCalDay(startOfDay(convertedAt));
+        return { ok: true };
+      }
       let saved;
       if (reschedule) {
         saved = await rescheduleAppointment(dialog.appointment.id, {
@@ -2328,11 +2390,50 @@ const filteredLeads = useMemo(() => {
             </div>
           </section>
 
+          {followUpTotal > 0 && (
+            <section className="panel" aria-label="Filter follow-ups">
+              <div className="toolbar">
+                <label className="search">
+                  <Icon name="search" />
+                  <input
+                    type="search"
+                    value={followUpSearch}
+                    onChange={(event) => setFollowUpSearch(event.target.value)}
+                    placeholder="Search name, phone, ID, staff"
+                    aria-label="Search follow-ups"
+                  />
+                </label>
+                <select value={followUpStatus} onChange={(event) => setFollowUpStatus(event.target.value)} aria-label="Filter by status">
+                  <option value="All">All statuses</option>
+                  {/* Closed leads (Not Interested, Lost Lead) never appear here. */}
+                  {STATUSES.filter((status) => !CLOSED_STATUSES.includes(status)).map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+                <select value={followUpStaff} onChange={(event) => setFollowUpStaff(event.target.value)} aria-label="Filter by assigned staff">
+                  <option value="All">All staff</option>
+                  <option value="">Unassigned</option>
+                  {staffOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <span className="spacer" />
+                <span className="count" aria-live="polite">
+                  {followUpFiltersActive ? `${followUpShown} of ${followUpTotal}` : `${followUpTotal} leads`}
+                </span>
+              </div>
+            </section>
+          )}
+
           {[
-            { title: "Overdue", items: followUps.overdue },
-            { title: "Due today", items: followUps.today },
-            { title: "Upcoming", items: followUps.upcoming },
-            { title: "Needs a follow-up date", items: followUps.unscheduled },
+            { title: "Overdue", items: followUpsFiltered.overdue },
+            { title: "Due today", items: followUpsFiltered.today },
+            { title: "Upcoming", items: followUpsFiltered.upcoming },
+            { title: "Needs a follow-up date", items: followUpsFiltered.unscheduled },
           ].map((group) =>
             group.items.length > 0 ? (
               <section className="section" key={group.title}>
@@ -2352,6 +2453,27 @@ const filteredLeads = useMemo(() => {
                 <Icon name="checkCircle" />
                 <strong>You are all caught up</strong>
                 <span>No follow-ups are scheduled right now.</span>
+              </div>
+            </div>
+          )}
+
+          {followUpTotal > 0 && followUpShown === 0 && (
+            <div className="panel">
+              <div className="state">
+                <Icon name="search" />
+                <strong>No follow-ups match these filters</strong>
+                <span>Try another search, status or staff member.</span>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => {
+                    setFollowUpSearch("");
+                    setFollowUpStatus("All");
+                    setFollowUpStaff("All");
+                  }}
+                >
+                  Clear filters
+                </button>
               </div>
             </div>
           )}
@@ -2524,10 +2646,21 @@ const filteredLeads = useMemo(() => {
                 <h2>
                   Awaiting confirmation <span className="muted num">{unconfirmedLeads.length}</span>
                 </h2>
-                <p>These leads can be booked once their status is Confirmed and a psychologist is assigned.</p>
+                <p>
+                  Interested, Follow-up Required and Awaiting Confirmation leads can be confirmed and booked in one step. New
+                  Lead and Contacted leads move through the workflow first.
+                </p>
               </div>
             </div>
-            <div className="panel">{renderLeadTable(unconfirmedLeads, "No leads are waiting for confirmation.")}</div>
+            <div className="panel">
+              {renderLeadTable(unconfirmedLeads, "No leads are waiting for confirmation.", (lead) =>
+                canConvertLead(lead.status) && canEditStatuses && canScheduleAppointments ? (
+                  <button type="button" className="appt-btn dark" onClick={() => openConversion(lead)}>
+                    Confirm &amp; book
+                  </button>
+                ) : null
+              )}
+            </div>
           </section>
         </>
       )}
@@ -2784,6 +2917,7 @@ const filteredLeads = useMemo(() => {
           canScheduleAppointments={canScheduleAppointments}
           hasClientProfile={clientsByLead.has(selectedLead.id)}
           onRequestBooking={openBooking}
+          onRequestConversion={openConversion}
           onAppointmentAction={runAppointmentAction}
           onClose={closeLeadDetails}
           onSave={handleSaveLead}
@@ -2799,9 +2933,19 @@ const filteredLeads = useMemo(() => {
 
       {bookingDialog && (
         <BookingModal
-          key={bookingDialog.mode + (bookingDialog.appointment ? bookingDialog.appointment.id : bookingDialog.client ? bookingDialog.client.id : "new")}
+          key={
+            bookingDialog.mode +
+            (bookingDialog.appointment
+              ? bookingDialog.appointment.id
+              : bookingDialog.client
+                ? bookingDialog.client.id
+                : bookingDialog.lead
+                  ? bookingDialog.lead.id
+                  : "new")
+          }
           mode={bookingDialog.mode}
           lockedClient={bookingDialog.client || null}
+          lead={bookingDialog.lead || null}
           appointment={bookingDialog.appointment}
           clients={clients.filter((item) => item.is_active)}
           psychologists={schedulablePsychologists}

@@ -56,6 +56,13 @@ export function canMoveStatus(from, to) {
   return from === to || (STATUS_TRANSITIONS[from] || []).includes(to);
 }
 
+// Day 23: a lead can be converted (Confirmed + client + first appointment, one transaction) only from a status that
+// may move straight to Confirmed: Interested, Follow-up Required or Awaiting Confirmation. The database
+// (convert_lead_to_appointment -> enforce_lead_workflow) applies the same rule.
+export function canConvertLead(status) {
+  return status !== CONFIRMED_STATUS && (STATUS_TRANSITIONS[status] || []).includes(CONFIRMED_STATUS);
+}
+
 /* ----- psychologist assignment ----- */
 
 // leads.assigned_psychologist_id -> psychologists.id (added by the migration above).

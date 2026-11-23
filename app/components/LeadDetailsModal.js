@@ -18,6 +18,7 @@ import {
   SERVICES,
   SOURCES,
   buildLostReason,
+  canConvertLead,
   canMoveStatus,
   confirmPathHint,
   statusOptions,
@@ -373,6 +374,7 @@ export default function LeadDetailsModal({
   canScheduleAppointments = true,
   hasClientProfile = false,
   onRequestBooking,
+  onRequestConversion,
   onAppointmentAction,
 }) {
   const [tab, setTab] = useState(initialTab);
@@ -995,9 +997,18 @@ export default function LeadDetailsModal({
 
                 {lead.status !== "Confirmed" && (
                   <p className="subtle-text">
-                    This lead is {lead.status}, so it has no client profile or appointments yet. Assign a psychologist and set
-                    it to Confirmed to create the client profile.
+                    This lead is {lead.status}, so it has no client profile or appointments yet.
+                    {canConvertLead(lead.status)
+                      ? " Confirm and book to confirm the lead, create its client profile and book the first session in one step."
+                      : isReasonRequired(lead.status)
+                        ? ""
+                        : ` ${confirmPathHint(lead.status)}`}
                   </p>
+                )}
+                {canConvertLead(lead.status) && canUpdateStatus && canScheduleAppointments && onRequestConversion && (
+                  <button type="button" className="mini-button primary" onClick={() => onRequestConversion(lead)}>
+                    <Icon name="calendar" /> Confirm and book appointment
+                  </button>
                 )}
                 {lead.status === "Confirmed" && !hasClientProfile && (
                   <p className="subtle-text">
