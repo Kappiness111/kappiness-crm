@@ -16,7 +16,9 @@ import ClientList from "../components/clients/ClientList";
 import AvailabilityManager from "../components/scheduling/AvailabilityManager";
 import useAppointmentWorkflow from "../components/scheduling/useAppointmentWorkflow";
 import FollowUpSessionsPanel from "../components/followups/FollowUpSessionsPanel";
+import FollowUpsList from "../components/followups/FollowUpsList";
 import SessionsPanel from "../components/sessions/SessionsPanel";
+import DailyChecklist from "../components/checklist/DailyChecklist";
 import { PSYCHOLOGIST_NAV } from "../lib/navigation";
 import { addDays, addMonthsClamped, getVisibleRange, startOfDay } from "../lib/calendar";
 import { describeError } from "../lib/psychologists";
@@ -463,6 +465,18 @@ function PsychologistDashboard() {
               </div>
             </header>
             <SessionsPanel viewer={viewer} psychologistId={psychologistId} notify={notify} onOpenClient={openClient} />
+            <header className="page-head" style={{ marginTop: 24 }}>
+              <div>
+                <h2>Daily checklist</h2>
+                <p>Tick each step of your sessions for the day. It is a record only and does not change the appointment.</p>
+              </div>
+            </header>
+            <DailyChecklist
+              viewer={viewer}
+              psychologistId={psychologistId}
+              psychologistNames={psychologist && psychologist.id ? { [psychologist.id]: psychologist.name } : {}}
+              notify={notify}
+            />
           </>
         )}
 
@@ -499,6 +513,19 @@ function PsychologistDashboard() {
               notify={notify}
               onOpenClient={openClient}
               initialFocusId={followUpFocus}
+            />
+            <header className="page-head" style={{ marginTop: 24 }}>
+              <div>
+                <h2>Follow-up records</h2>
+                <p>Type A (next session) and Type B (contact client) follow-ups for your clients. Read-only: the clinic team updates them.</p>
+              </div>
+            </header>
+            <FollowUpsList
+              viewer={viewer}
+              psychologistId={psychologistId}
+              psychologistNames={psychologist && psychologist.id ? { [psychologist.id]: psychologist.name } : {}}
+              notify={notify}
+              onOpenClient={openClient}
             />
           </>
         )}
