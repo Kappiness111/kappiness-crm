@@ -12,7 +12,7 @@ import { formatDate, formatTime } from "../../lib/leads";
 import useFollowUpRecords from "./useFollowUpRecords";
 
 // Statuses that can still need contact (closed follow-ups never do).
-const CONTACT_STATUSES = ["Contact Needed", "Due Today", "Overdue", "Upcoming", "Tentative", "Pending Confirmation"];
+const CONTACT_STATUSES = ["Contact Needed", "Due Today", "Overdue", "Upcoming", "Pending Confirmation"];
 
 /* Reception's contact list: open follow-ups that need the client contacted (Type B, Contact Needed, or due /
    overdue with communication Reminder Pending or No Response). Staff only; the database checks again.

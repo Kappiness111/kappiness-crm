@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { COMMUNICATION_STATUSES, describeFollowUpError, setCommunicationStatus } from "../../lib/followUpsApi";
+import { COMMUNICATION_STATUSES, communicationLabel, describeFollowUpError, setCommunicationStatus } from "../../lib/followUpsApi";
 
 /* Quick buttons that record what actually happened with the client (staff only; the database checks again).
    Opening WhatsApp is never recorded as "Message Sent": staff press Message Sent after they have sent it.
@@ -28,7 +28,7 @@ export default function CommunicationButtons({ followUp, notify, onSaved, compac
               : `No Response recorded for ${followUp.client_name || "the client"}. A call follow-up for reception (Contact Needed) is open for this client.`
         );
       } else {
-        notify(`${status} recorded for ${followUp.client_name || "the client"}`);
+        notify(`${communicationLabel(status)} recorded for ${followUp.client_name || "the client"}`);
       }
       if (onSaved) onSaved(result, status);
     } catch (err) {
@@ -60,7 +60,7 @@ export default function CommunicationButtons({ followUp, notify, onSaved, compac
               disabled={Boolean(busy)}
               onClick={() => choose(status)}
             >
-              {busy === status ? "Saving…" : status}
+              {busy === status ? "Saving…" : communicationLabel(status)}
             </button>
           );
         })}

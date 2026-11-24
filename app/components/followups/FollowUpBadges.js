@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "../ui/StatusBadges";
-import { FOLLOW_UP_TYPE_META, displayStatus, wantsReschedule } from "../../lib/followUpsApi";
+import { FOLLOW_UP_TYPE_META, communicationLabel, confirmationLabel, displayStatus, wantsReschedule } from "../../lib/followUpsApi";
 import { formatDate } from "../../lib/leads";
 
 /* Badges for follow_ups (Type A / Type B). Every badge is written out, never colour alone, and reuses the
@@ -79,10 +79,10 @@ export function DueDate({ row }) {
 
 export function CommunicationBadge({ status }) {
   if (!status) return <span className="muted">—</span>;
-  return <Badge tone={COMMUNICATION_TONE[status] || "neutral"}>{status}</Badge>;
+  return <Badge tone={COMMUNICATION_TONE[status] || "neutral"}>{communicationLabel(status)}</Badge>;
 }
 
 export function ConfirmationBadge({ status }) {
   if (!status) return <span className="muted">—</span>;
-  return <Badge tone={CONFIRMATION_TONE[status] || "neutral"}>{status}</Badge>;
+  return <Badge tone={CONFIRMATION_TONE[status] || "neutral"}>{confirmationLabel(status)}</Badge>;
 }

@@ -27,12 +27,12 @@ export const FOLLOW_UP_STATUSES = ["Upcoming", "Tentative", "Pending Confirmatio
 export const CLOSED_FOLLOW_UP_STATUSES = ["Completed", "No Follow-up Required"];
 // Due states that are shown as a status (they come from due_state in the view, never from the stored status).
 export const DUE_STATUSES = ["Due Today", "Overdue"];
-// Every status a user can filter by, in the order they read best.
+// Statuses offered in the filter dropdown, in the order they read best. "Tentative" is a slot hold made only by
+// the booking dialog (propose_follow_up_slot), so it is not offered here; held follow-ups still show their badge.
 export const FOLLOW_UP_FILTER_STATUSES = [
   "Upcoming",
   "Due Today",
   "Overdue",
-  "Tentative",
   "Pending Confirmation",
   "Contact Needed",
   "Completed",
@@ -48,6 +48,18 @@ export const COMMUNICATION_STATUSES = [
   "Client Will Inform",
 ];
 export const CONFIRMATION_STATUSES = ["Not Requested", "Awaiting Client", "Confirmed", "Declined"];
+
+// Reception wording for stored values (display only; the stored values do not change).
+const COMMUNICATION_LABEL = { "Client Will Inform": "Will Inform" };
+const CONFIRMATION_LABEL = { "Awaiting Client": "Yet to confirm" };
+
+export function communicationLabel(status) {
+  return COMMUNICATION_LABEL[status] || status;
+}
+
+export function confirmationLabel(status) {
+  return CONFIRMATION_LABEL[status] || status;
+}
 
 export function isClosedFollowUp(row) {
   return Boolean(row) && CLOSED_FOLLOW_UP_STATUSES.includes(row.status);

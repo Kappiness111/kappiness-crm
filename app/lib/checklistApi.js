@@ -118,5 +118,42 @@ export async function listCompletedSessionTimes(clientIds, before) {
 export function describeActivity(entry) {
   const changes = (entry.details && entry.details.changes) || {};
   const parts = CHECKLIST_STEPS.filter((step) => changes[step.id]).map((step) => `${step.label} ${changes[step.id].to ? "ticked" : "unticked"}`);
+  const applicability = entry.details && entry.details.step_id;
+  if (applicability) {
+    const reason = entry.details.reason;
+    return `${stepLabel(applicability)} ${reason ? `marked not applicable: ${reason}` : "made applicable"}`;
+  }
   return parts.length ? parts.join(", ") : entry.action;
+}
+
+/* ----- shared by the daily checklist and the session details panel ----- */
+
+export const CHECKLIST_GROUPS = [
+  { id: "during", label: "During the session", steps: ["client_arrived", "session_started", "session_completed"] },
+  { id: "after", label: "After the session", steps: ["next_follow_up_discussed", "next_appointment_booked", "reminder_sent"] },
+];
+
+export function stepLabel(stepId) {
+  const step = CHECKLIST_STEPS.find((item) => item.id === stepId);
+  return step ? step.label : stepId;
+}
+
+// Reception wording for the appointment type: only "New Session" or "Follow-up".
+export function sessionKind(appointment, session = null) {
+  const followUp = Boolean(appointment && appointment.recommendation_id) || Boolean(session && session.session_type === "Follow-up");
+  return { followUp, label: followUp ? "Follow-up" : "New Session" };
+}
+
+/* Steps that do not apply, as { stepId: reason }. Display only: the stored checklist is never changed.
+   - A missed appointment: the client did not come, so the in-session steps and the discussion do not apply.
+   - No follow-up needed (closed as No Follow-up Required): there is no next appointment to book. */
+export function notApplicableSteps({ appointment, noFollowUpNeeded = false }) {
+  const result = {};
+  if (appointment && appointment.status === "Missed") {
+    ["client_arrived", "session_started", "session_completed", "next_follow_up_discussed"].forEach((id) => {
+      result[id] = "Session missed";
+    });
+  }
+  if (noFollowUpNeeded) result.next_appointment_booked = "No follow-up needed";
+  return result;
 }

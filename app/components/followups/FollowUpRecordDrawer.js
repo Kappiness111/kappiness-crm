@@ -15,6 +15,7 @@ import useAppointmentWorkflow from "../scheduling/useAppointmentWorkflow";
 import { getAppointment } from "../../lib/appointmentsApi";
 import {
   closeFollowUp,
+  communicationLabel,
   describeFollowUpError,
   getSessionSummary,
   isClosedFollowUp,
@@ -419,8 +420,8 @@ export default function FollowUpRecordDrawer({
               <ol className="status-trail">
                 {contacts.rows.map((row) => (
                   <li key={row.id}>
-                    <strong>{row.communication_status}</strong>
-                    {row.previous_status ? <span className="muted"> (was {row.previous_status})</span> : null}
+                    <strong>{communicationLabel(row.communication_status)}</strong>
+                    {row.previous_status ? <span className="muted"> (was {communicationLabel(row.previous_status)})</span> : null}
                     <span className="block muted">
                       Recorded by {row.contacted_by_name || "a staff member"} on {formatDateTime(row.contacted_at)}
                     </span>
