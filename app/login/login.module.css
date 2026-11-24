@@ -2,15 +2,15 @@
    Scoped as a CSS module so none of these class names can collide with the
    dashboard styles in globals.css.
 
-   Palette: coffee #4A3027, caramel #B96F43, cream #F7F0E6, sage #8B9B7A */
+   Palette: blue #1F5F99, green #2E9B7C, mist #EEF5FB (matches the CRM theme) */
 
 .page {
-  --coffee: #4a3027;
-  --caramel: #b96f43;
-  --caramel-deep: #a85f35;
-  --cream: #f7f0e6;
-  --sage: #8b9b7a;
-  --ink: #2e1f18;
+  --coffee: #1f5f99;
+  --caramel: #2e9b7c;
+  --caramel-deep: #1c7a60;
+  --cream: #eef5fb;
+  --sage: #2e9b7c;
+  --ink: #16212c;
   --sans: "Poppins", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
 
   min-height: 100vh;
@@ -38,7 +38,7 @@
   border-radius: 16px;
   background: #ffffff;
   border: 1px solid var(--border);
-  box-shadow: 0 24px 60px -32px rgba(42, 32, 25, 0.35);
+  box-shadow: 0 24px 60px -32px rgba(16, 32, 48, 0.35);
   /* The sign-in card keeps its light brand look in both themes. */
   color-scheme: light;
 }
@@ -50,7 +50,7 @@
   z-index: 2;
   padding: 34px 34px 0;
   border-radius: 16px 0 0 16px;
-  background: var(--caramel-deep);
+  background: linear-gradient(160deg, #1f5f99 0%, #1d6f8c 55%, #1f7a64 100%);
   color: #ffffff;
 }
 
@@ -59,7 +59,7 @@
   padding: 6px 10px;
   border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 8px 18px -10px rgba(58, 30, 16, 0.6);
+  box-shadow: 0 8px 18px -10px rgba(16, 40, 70, 0.6);
 }
 
 .logo {
@@ -118,7 +118,7 @@
 
 .subtitle {
   margin: 8px 0 0;
-  color: #7b6e65;
+  color: #5d6a78;
   font-size: 14px;
 }
 
@@ -136,7 +136,7 @@
 }
 
 .label {
-  color: #6f625a;
+  color: #4f5c6a;
   font-size: 13px;
   font-weight: 500;
   transition: color 160ms ease;
@@ -156,7 +156,7 @@
   height: 46px;
   padding: 0;
   border: 0;
-  border-bottom: 1.5px solid #d9cfc6;
+  border-bottom: 1.5px solid #d3dde8;
   border-radius: 0;
   outline: none;
   background: transparent;
@@ -166,11 +166,11 @@
 }
 
 .input::placeholder {
-  color: #aaa09a;
+  color: #8e9bab;
 }
 
 .input:hover {
-  border-bottom-color: #b9aca2;
+  border-bottom-color: #a9b8c8;
 }
 
 .input:focus-visible {
@@ -207,13 +207,13 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #7b6e65;
+  color: #5d6a78;
   transform: translateY(-50%);
   transition: background 160ms ease, color 160ms ease;
 }
 
 .toggle:hover {
-  background: rgba(74, 48, 39, 0.08);
+  background: rgba(31, 95, 153, 0.08);
   color: var(--coffee);
 }
 
@@ -262,17 +262,17 @@
   border: 0;
   border-radius: 12px;
   background: var(--coffee);
-  color: #fbf4e8;
+  color: #f4f9fd;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  box-shadow: 0 14px 24px -14px rgba(74, 48, 39, 0.85);
+  box-shadow: 0 14px 24px -14px rgba(31, 95, 153, 0.85);
   transition: background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
 .submit:hover:not(:disabled) {
-  background: #5c3d31;
-  box-shadow: 0 18px 28px -14px rgba(74, 48, 39, 0.9);
+  background: #1a5186;
+  box-shadow: 0 18px 28px -14px rgba(31, 95, 153, 0.9);
   transform: translateY(-1px);
 }
 
@@ -293,8 +293,8 @@
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2.5px solid rgba(251, 244, 232, 0.35);
-  border-top-color: #fbf4e8;
+  border: 2.5px solid rgba(244, 249, 253, 0.35);
+  border-top-color: #f4f9fd;
   border-radius: 50%;
   animation: spin 700ms linear infinite;
 }
@@ -304,7 +304,7 @@
   align-items: center;
   gap: 8px;
   margin: 24px 0 0;
-  color: #7b6e65;
+  color: #5d6a78;
   font-size: 13px;
 }
 
@@ -394,7 +394,7 @@
   align-items: center;
   gap: 12px;
   margin: 22px 0 0;
-  color: #7b6e65;
+  color: #5d6a78;
   font-size: 13px;
 }
 
@@ -403,7 +403,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: #d9cfc6;
+  background: #d3dde8;
 }
 
 .googleButton {
@@ -414,7 +414,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  border: 1.5px solid #d9cfc6;
+  border: 1.5px solid #d3dde8;
   border-radius: 12px;
   background: #ffffff;
   color: var(--ink);
@@ -440,7 +440,7 @@
 
 /* Dark spinner for the white Google button (the base .spinner is light). */
 .spinnerDark {
-  border-color: rgba(74, 48, 39, 0.25);
+  border-color: rgba(31, 95, 153, 0.25);
   border-top-color: var(--coffee);
 }
 

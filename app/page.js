@@ -8,10 +8,14 @@ import Dialog from "./components/Dialog";
 import Icon from "./components/Icon";
 import LeadDetailsModal from "./components/LeadDetailsModal";
 import StatusBadge from "./components/StatusBadge";
+import { OverdueBadge } from "./components/ui/StatusBadges";
 import { CRM_NAV, CRM_VIEWS, crmSectionOf, roleLabel } from "./lib/navigation";
 import PageTabs from "./components/PageTabs";
 import NotificationCenter from "./components/notifications/NotificationCenter";
 import FollowUpReport from "./components/reports/FollowUpReport";
+import DashboardTop from "./components/dashboard/DashboardTop";
+import { daySummary, scheduleForDay } from "./lib/scheduleCapacity";
+import { HelpButton } from "./components/help/CrmGuide";
 import { createClient } from "../utils/supabase/client";
 import { canUpdateStatuses, getStaffName, getStaffRole } from "./lib/staff";
 import {
@@ -1360,7 +1364,14 @@ const filteredLeads = useMemo(() => {
   function renderDue(lead) {
     const state = getFollowUpState(lead, now);
     if (!lead.next_follow_up_at || CLOSED_STATUSES.includes(lead.status)) return <span className="muted-cell">—</span>;
-    const tone = state === "overdue" ? "overdue" : state === "today" ? "today" : "";
+    if (state === "overdue") {
+      return (
+        <OverdueBadge title={formatDateTime(lead.next_follow_up_at)}>
+          {dueLabel(lead, now)}, {formatTime(lead.next_follow_up_at)}
+        </OverdueBadge>
+      );
+    }
+    const tone = state === "today" ? "today" : "";
     return (
       <span className={`due ${tone}`} title={formatDateTime(lead.next_follow_up_at)}>
         {state === "upcoming" ? formatShort(lead.next_follow_up_at) : `${dueLabel(lead, now)}, ${formatTime(lead.next_follow_up_at)}`}
@@ -1445,7 +1456,7 @@ const filteredLeads = useMemo(() => {
             {!leadsLoading &&
               !leadsError &&
               rows.map((lead) => (
-                <tr key={lead.id} className="clickable" onClick={() => openLead(lead)}>
+                <tr key={lead.id} className={`clickable ${getFollowUpState(lead, now) === "overdue" && !CLOSED_STATUSES.includes(lead.status) ? "is-overdue" : ""}`} onClick={() => openLead(lead)}>
                   <td>
                     {renderPerson(
                       lead,
@@ -1654,210 +1665,37 @@ const filteredLeads = useMemo(() => {
     return `${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)} vs previous ${option.label}`;
   }
 
-  function renderDashboardHero() {
-    const a = analytics;
-    const option = rangeOption();
-    const total = a ? a.total : 0;
-    const confirmed = a ? a.byStatus[CONFIRMED_STATUS] || 0 : 0;
-    const lost = a ? a.byStatus[LOST_STATUS] || 0 : 0;
-    const enquiries = a ? a.byStatus.Enquiry || 0 : 0;
-    const pending = leadsLoading || !a;
-
-    const kpis = [
-      { label: "Total leads", value: total, icon: "users", status: "All" },
-      { label: "New enquiries", value: enquiries, icon: "inbox", status: "Enquiry" },
-      { label: "Confirmed", value: confirmed, icon: "userCheck", status: CONFIRMED_STATUS },
-      { label: "Lost", value: lost, icon: "alert", status: LOST_STATUS },
-      { label: "Upcoming sessions", value: weekAppointments.length, icon: "calendar", page: "Appointments", live: true },
-    ];
+  function renderRecentLeadsCard() {
+    const term = dashSearch.trim().toLowerCase();
+    const digits = term.replace(/\s+/g, "");
+    const rows = [...leads]
+      .filter(
+        (lead) =>
+          !term ||
+          [lead.full_name, lead.email, lead.lead_code, lead.source, lead.status].some((field) => (field || "").toLowerCase().includes(term)) ||
+          (digits && (lead.phone || "").replace(/\s+/g, "").includes(digits))
+      )
+      .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
+      .slice(0, 6);
 
     return (
-      <section className="dash-hero" aria-label="Overview">
-        <div className="dash-hero-main">
-          <h1 className="dash-greeting">
-            {getGreeting(now)}
-            {firstName ? `, ${firstName}` : ""}
-          </h1>
-          <p className="dash-date">
-            {now ? `It's ${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}` : "Today"}
-            {" · "}
-            {attentionCount > 0
-              ? `${attentionCount} follow-up${attentionCount > 1 ? "s" : ""} need${attentionCount > 1 ? "" : "s"} attention`
-              : "No follow-ups due"}
-          </p>
-          <div className="dash-hero-rule" aria-hidden="true" />
-          <div className="dash-kpis">
-            {kpis.map((kpi) => (
-              <button
-                key={kpi.label}
-                type="button"
-                className="dash-kpi"
-                onClick={() => (kpi.page ? navigateTo(kpi.page) : goToLeads(kpi.status))}
-              >
-                <span className="dash-kpi-value">
-                  <span className="dash-kpi-icon" aria-hidden="true">
-                    <Icon name={kpi.icon} />
-                  </span>
-                  {pending && !kpi.live ? "…" : kpi.value}
-                </span>
-                <span className="dash-kpi-label">{kpi.label}</span>
-              </button>
-            ))}
+      <section className="dash-card">
+        <header className="dash-card-head dash-list-head">
+          <div>
+            <h2>Recent leads</h2>
           </div>
-          <p className="dash-kpi-note">
-            Lead counts cover the last {option.label}
-            {a && !leadsLoading ? ` (${deltaText(a, option)})` : ""}. Sessions cover the next 7 days.
-          </p>
-        </div>
-
-        <div className="dash-hero-side">
-          <div className="dash-hero-tools">
-            <RangeTabs
-              label="Leads counted"
-              value={dashScope}
-              onChange={setDashScope}
-              options={[
-                { id: "all", short: "All", title: "Every lead in the CRM" },
-                { id: "mine", short: "Mine", title: "Leads assigned to or updated by you" },
-              ]}
-            />
-            <RangeTabs value={dashRange} onChange={setDashRange} options={RANGE_OPTIONS.map((item) => ({ ...item, title: `Last ${item.label}` }))} />
-            {canScheduleAppointments && (
-              <button type="button" className="dash-icon-btn" onClick={() => openBooking()} aria-label="Book appointment" title="Book appointment">
-                <Icon name="calendar" />
-              </button>
-            )}
-            <button type="button" className="dash-icon-btn primary" onClick={openAddForm} aria-label="Add lead" title="Add lead">
-              <Icon name="plus" />
+          <div className="dash-list-tools">
+            <label className="dash-search">
+              <Icon name="search" />
+              <span className="sr-only">Search recent leads</span>
+              <input type="search" placeholder="Search" value={dashSearch} onChange={(event) => setDashSearch(event.target.value)} />
+            </label>
+            <button type="button" className="dash-icon-btn round" onClick={() => goToLeads("All")} aria-label="All leads" title="All leads">
+              <Icon name="arrowUpRight" />
             </button>
           </div>
-          <ArcGauge
-            value={confirmed}
-            total={leadsLoading ? 0 : total}
-            label="Lead conversion"
-            caption={leadsLoading ? "Loading leads…" : total ? `${confirmed} of ${total} leads confirmed` : "No leads in this period"}
-          />
-        </div>
-      </section>
-    );
-  }
-
-  function renderSchedule() {
-    const today = now ? now.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Today";
-    let items = [];
-    let empty = "";
-    let page = "Appointments";
-
-    if (dashTab === "appointments") {
-      items = nextAppointments.slice(0, 4).map((item) => {
-        const lead = leadsById.get(item.lead_id);
-        const start = new Date(item.starts_at);
-        return {
-          id: item.id,
-          lead,
-          title: lead ? lead.full_name : "Unknown lead",
-          sub: psychologistNames[item.psychologist_id] || "Psychologist not set",
-          chips: [
-            now && isSameDay(start, now) ? "Today" : formatDate(item.starts_at).slice(0, 6),
-            `${formatTime(item.starts_at)}${item.ends_at ? ` – ${formatTime(item.ends_at)}` : ""}`,
-          ],
-          person: lead ? lead.full_name : "",
-        };
-      });
-      empty = "No appointments booked yet.";
-    } else if (dashTab === "followups") {
-      items = dashboardFollowUps.map((lead) => ({
-        id: lead.id,
-        lead,
-        title: lead.full_name,
-        sub: lead.service_interest || lead.source,
-        chips: [lead.status, dueLabel(lead, now)].filter(Boolean),
-        person: lead.full_name,
-      }));
-      empty = "No follow-ups are scheduled.";
-      page = "Follow Ups";
-    } else {
-      items = activityLog
-        .filter((row) => leadsById.has(row.lead_id))
-        .slice(0, 4)
-        .map((row, index) => {
-          const lead = leadsById.get(row.lead_id);
-          return {
-            id: `${row.lead_id}-${row.occurred_at}-${index}`,
-            lead,
-            title: `${row.activity_type || "Update"} · ${lead.full_name}`,
-            sub: row.notes || lead.lead_code,
-            chips: [relativeTime(row.occurred_at, now), row.staff_member].filter(Boolean),
-            person: row.staff_member || lead.full_name,
-          };
-        });
-      empty = "No activity has been recorded yet.";
-      page = "Leads";
-    }
-
-    return (
-      <section className="dash-card dash-schedule">
-        <header className="dash-schedule-head">
-          <span className="dash-date-pill">
-            <Icon name="calendar" /> {today}
-          </span>
-          <h2>Schedule</h2>
-          <button
-            type="button"
-            className="dash-icon-btn round"
-            onClick={() => (page === "Leads" ? goToLeads("All") : navigateTo(page))}
-            aria-label={`Open ${page}`}
-            title={`Open ${page}`}
-          >
-            <Icon name="arrowUpRight" />
-          </button>
         </header>
-        <div className="dash-tabs" role="tablist" aria-label="Schedule">
-          {[
-            ["appointments", "Sessions"],
-            ["followups", "Follow-ups"],
-            ["activity", "Activity"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={dashTab === id}
-              className={dashTab === id ? "is-active" : ""}
-              onClick={() => setDashTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="dash-schedule-list" role="tabpanel">
-          {items.length === 0 ? (
-            <div className="chart-empty">
-              <strong>Nothing here yet</strong>
-              <span>{empty}</span>
-            </div>
-          ) : (
-            items.map((item, index) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`dash-event ${index === 0 ? "featured" : ""}`}
-                onClick={() => item.lead && openLead(item.lead)}
-              >
-                <span className="dash-event-title">{item.title}</span>
-                <span className="dash-event-sub">{item.sub}</span>
-                <span className="dash-event-foot">
-                  {item.chips.map((chip) => (
-                    <span key={chip} className="dash-chip">
-                      {chip}
-                    </span>
-                  ))}
-                  {item.person && <Avatar name={item.person} />}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
+        <div className="dash-list-body">{renderLeadsTable(rows, { compact: true })}</div>
       </section>
     );
   }
@@ -1931,35 +1769,6 @@ const filteredLeads = useMemo(() => {
           />
         )}
       </section>
-    );
-  }
-
-  function renderTiles() {
-    const tiles = [
-      { label: "Overdue follow-ups", value: followUps.overdue.length, tone: "danger", action: "Follow up", page: "Follow Ups" },
-      { label: "Due today", value: followUps.today.length, tone: "warning", action: "Follow up", page: "Follow Ups" },
-      { label: "Upcoming follow-ups", value: followUps.upcoming.length, tone: "info", action: "View", page: "Follow Ups" },
-      { label: "No follow-up set", value: followUps.unscheduled.length, tone: "neutral", action: "Plan", page: "Follow Ups" },
-      { label: "Ready to book", value: confirmedWithoutBooking.length, tone: "success", action: "Book", page: "Confirmed" },
-    ];
-    return (
-      <div className="dash-tiles">
-        {tiles.map((tile) => (
-          <button key={tile.label} type="button" className="dash-tile" onClick={() => navigateTo(tile.page)}>
-            <span className={`dash-tile-dot fill-${tile.tone}`} aria-hidden="true" />
-            <span className="dash-tile-label">{tile.label}</span>
-            <span className="dash-tile-value">
-              {leadsLoading ? "…" : tile.value} <small>{tile.value === 1 ? "lead" : "leads"}</small>
-            </span>
-            <span className="dash-tile-foot">
-              {tile.action}
-              <span className="dash-tile-arrow" aria-hidden="true">
-                <Icon name="arrowUpRight" />
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
     );
   }
 
@@ -2049,41 +1858,6 @@ const filteredLeads = useMemo(() => {
     );
   }
 
-  function renderRecentLeadsCard() {
-    const term = dashSearch.trim().toLowerCase();
-    const digits = term.replace(/\s+/g, "");
-    const rows = [...leads]
-      .filter(
-        (lead) =>
-          !term ||
-          [lead.full_name, lead.email, lead.lead_code, lead.source, lead.status].some((field) => (field || "").toLowerCase().includes(term)) ||
-          (digits && (lead.phone || "").replace(/\s+/g, "").includes(digits))
-      )
-      .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
-      .slice(0, 6);
-
-    return (
-      <section className="dash-card">
-        <header className="dash-card-head dash-list-head">
-          <div>
-            <h2>Recent leads</h2>
-          </div>
-          <div className="dash-list-tools">
-            <label className="dash-search">
-              <Icon name="search" />
-              <span className="sr-only">Search recent leads</span>
-              <input type="search" placeholder="Search" value={dashSearch} onChange={(event) => setDashSearch(event.target.value)} />
-            </label>
-            <button type="button" className="dash-icon-btn round" onClick={() => goToLeads("All")} aria-label="All leads" title="All leads">
-              <Icon name="arrowUpRight" />
-            </button>
-          </div>
-        </header>
-        <div className="dash-list-body">{renderLeadsTable(rows, { compact: true })}</div>
-      </section>
-    );
-  }
-
   function countBy(getKey) {
     const map = new Map();
     leads.forEach((lead) => {
@@ -2141,16 +1915,59 @@ const filteredLeads = useMemo(() => {
   /* ----- render ----- */
 
   const navItems = CRM_NAV.map((item) =>
-    item.id === "Leads" ? { ...item, count: attentionCount || undefined } : item
+    item.id === "Leads"
+      ? {
+          ...item,
+          count: attentionCount || undefined,
+          countTone: followUps.overdue.length ? "overdue" : undefined,
+          countLabel: followUps.overdue.length ? "follow-ups need attention, some overdue" : "follow-ups need attention",
+        }
+      : item
   );
   const confirmedShare = totalLeads ? Math.round((confirmedCount / totalLeads) * 100) : 0;
   const nextAppointments = [...upcomingAppointments]
     .filter((item) => !now || new Date(item.starts_at).getTime() >= now.getTime() - 15 * 60000)
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
   const firstName = (currentStaff.name || "").split(" ")[0];
+  // Today at the clinic: the same slot and capacity rules as the Availability & Leave page.
+  const todayLoading = !now || schedulingState === "loading";
+  const todayDays =
+    now && schedulingState === "ready"
+      ? scheduleForDay(
+          psychologists.filter((item) => item.active),
+          startOfDay(now),
+          {
+            availability,
+            appointments,
+            blocks,
+            slotMinutes: slotDefaults.durationMinutes,
+            bufferMinutes: slotDefaults.bufferMinutes,
+            now,
+          }
+        )
+      : [];
+  const today = daySummary(todayDays);
+  const leaveNames = todayDays
+    .filter((day) => day.onLeave)
+    .map((day) => day.psychologist.name)
+    .join(", ");
+  const openLeadCount = leads.filter((lead) => lead.status !== "Confirmed" && lead.status !== "Lost").length;
+  const awaitingLeadCount = leads.filter((lead) => lead.status === "Yet to Confirm" || lead.status === "Will Inform").length;
 
   // Notifications come from real CRM records; changes made in this tab are listed under "Just now".
+  // Guide steps open the matching screen or form in place.
+  function goToStep(id) {
+    if (id === "add-lead") openAddForm();
+    else if (id === "follow-up") navigateTo("Follow Ups");
+    else if (id === "confirm") goToLeads("Yet to Confirm");
+    else if (id === "book") navigateTo("Dashboard");
+    else if (id === "leave") router.push("/schedule");
+    else if (id === "follow-ups") router.push("/follow-ups");
+  }
+
   const headerActions = (
+    <>
+    <HelpButton onStep={goToStep} />
     <NotificationCenter
       sessionItems={notifications}
       onSessionRead={() => setNotifications((current) => current.map((item) => ({ ...item, read: true })))}
@@ -2160,6 +1977,7 @@ const filteredLeads = useMemo(() => {
         else router.push(href);
       }}
     />
+    </>
   );
 
   const VIEW_TITLES = { "Follow Ups": "Follow-up calls", Confirmed: "Appointment list" };
@@ -2179,11 +1997,11 @@ const filteredLeads = useMemo(() => {
     <PageTabs
       label="Appointments"
       activeId={activePage}
-      onSelect={(id) => (id === "Schedule" ? router.push("/schedule") : openPage(id))}
+      onSelect={(id) => (id === "Sessions" ? router.push("/sessions") : openPage(id))}
       items={[
         { id: "Appointments", label: "Calendar" },
         { id: "Confirmed", label: "Appointment list", count: upcomingAppointments.length },
-        { id: "Schedule", label: "Schedule & capacity" },
+        { id: "Sessions", label: "Sessions" },
       ]}
     />
   );
@@ -2199,18 +2017,90 @@ const filteredLeads = useMemo(() => {
       user={{ name: currentStaff.name, email: currentStaff.email, roleLabel: roleLabel(currentStaff.role) }}
     >
       {activePage === "Dashboard" && (
-        <div className="dash">
-          {renderDashboardHero()}
+        <div className="home">
+          <DashboardTop
+            greeting={`${getGreeting(now)}${firstName ? `, ${firstName}` : ""}`}
+            dateLabel={now ? now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : ""}
+            now={now}
+            leads={leads}
+            leadsLoading={leadsLoading}
+            clients={clients}
+            canBook={canScheduleAppointments}
+            onAddLead={openAddForm}
+            onAddClient={openAddForm}
+            onBook={() => openBooking()}
+            onScheduleFollowUp={() => router.push("/follow-ups?view=open")}
+            onSendReminder={() => router.push("/follow-ups?view=action")}
+            onOpenFollowUpCalls={() => navigateTo("Follow Ups")}
+            onOpenLeads={goToLeads}
+          />
 
-          <div className="dash-main">
-            {renderSchedule()}
-            {renderTrendCard()}
-            {renderStatusCard()}
-            {renderTiles()}
-          </div>
+          <section className="home-kpis" aria-label="Today at the clinic">
+            {[
+              {
+                icon: "calendar",
+                label: "Appointments today",
+                value: today.booked,
+                meta: `${today.confirmed} confirmed · ${today.willInform} awaiting`,
+                onClick: () => navigateTo("Confirmed"),
+              },
+              {
+                icon: "clock",
+                label: "Open slots today",
+                value: today.available,
+                meta: today.capacity ? `of ${today.capacity} · ${today.utilisation}% booked` : "No working hours today",
+                onClick: () => router.push("/schedule"),
+              },
+              {
+                icon: "users",
+                label: "Open leads",
+                value: openLeadCount,
+                meta: `${awaitingLeadCount} waiting to confirm`,
+                onClick: () => goToLeads("All"),
+              },
+              {
+                icon: "userCheck",
+                label: "On leave today",
+                value: today.onLeave,
+                meta: today.onLeave ? leaveNames : "Everyone is in",
+                onClick: () => router.push("/schedule"),
+              },
+            ].map((kpi) => (
+              <button key={kpi.label} type="button" className="home-kpi" onClick={kpi.onClick}>
+                <span className="home-kpi-icon" aria-hidden="true">
+                  <Icon name={kpi.icon} />
+                </span>
+                <span className="home-kpi-text">
+                  <span className="home-kpi-value">{todayLoading && kpi.icon !== "users" ? "…" : kpi.value}</span>
+                  <span className="home-kpi-label">{kpi.label}</span>
+                  <span className="home-kpi-meta">{todayLoading && kpi.icon !== "users" ? "Loading…" : kpi.meta}</span>
+                </span>
+              </button>
+            ))}
+          </section>
 
-          {renderDashboardAnalytics()}
-          {renderRecentLeadsCard()}
+          <section className="home-leads" aria-labelledby="home-leads-title">
+            <div className="home-section-head">
+              <h2 id="home-leads-title">Leads</h2>
+              <div className="report-trend-tools">
+                <RangeTabs
+                  label="Leads counted"
+                  value={dashScope}
+                  onChange={setDashScope}
+                  options={[
+                    { id: "all", short: "All", title: "Every lead in the CRM" },
+                    { id: "mine", short: "Mine", title: "Leads assigned to or updated by you" },
+                  ]}
+                />
+                <RangeTabs value={dashRange} onChange={setDashRange} options={RANGE_OPTIONS.map((item) => ({ ...item, title: `Last ${item.label}` }))} />
+              </div>
+            </div>
+            <div className="home-charts">
+              {renderTrendCard()}
+              {renderStatusCard()}
+            </div>
+            {renderRecentLeadsCard()}
+          </section>
         </div>
       )}
 
@@ -2650,7 +2540,9 @@ const filteredLeads = useMemo(() => {
               <p>
                 {reportTab === "leads"
                   ? "How leads are progressing: status, source, reasons for losing leads and staff workload."
-                  : "Every booked follow-up session, by psychologist and status."}
+                  : reportTab === "trends"
+                    ? "Where leads come from, why they are lost, and who is handling them."
+                    : "Every booked follow-up session, by psychologist and status."}
               </p>
             </div>
           </header>
@@ -2661,9 +2553,28 @@ const filteredLeads = useMemo(() => {
             onSelect={setReportTab}
             items={[
               { id: "leads", label: "Leads" },
+              { id: "trends", label: "Trends" },
               { id: "followups", label: "Follow-up sessions" },
             ]}
           />
+
+          {reportTab === "trends" && (
+            <div className="dash report-trends">
+              <div className="report-trend-tools">
+                <RangeTabs
+                  label="Leads counted"
+                  value={dashScope}
+                  onChange={setDashScope}
+                  options={[
+                    { id: "all", short: "All", title: "Every lead in the CRM" },
+                    { id: "mine", short: "Mine", title: "Leads assigned to or updated by you" },
+                  ]}
+                />
+                <RangeTabs value={dashRange} onChange={setDashRange} options={RANGE_OPTIONS.map((item) => ({ ...item, title: `Last ${item.label}` }))} />
+              </div>
+              {renderDashboardAnalytics()}
+            </div>
+          )}
 
           {reportTab === "followups" && <FollowUpReport psychologistNames={psychologistNames} onOpenClient={(id) => router.push(`/clients/${id}`)} />}
 

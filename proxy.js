@@ -71,6 +71,15 @@ export async function proxy(request) {
   const isAuthCallback =
   request.nextUrl.pathname === '/auth/callback'
 
+  // Supabase sends the sign-in code to the Site URL (for example "/?code=...") when the requested return address is
+  // not on its Redirect URLs list. Pass that code on to the callback, which finishes the sign-in, instead of
+  // dropping it on the way to the login page.
+  if (!isLoggedIn && !isAuthCallback && request.nextUrl.pathname === '/' && request.nextUrl.searchParams.has('code')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/callback'
+    return preserveResponseState(response, NextResponse.redirect(url))
+  }
+
   if (!isLoggedIn && !isLoginPage && !isAuthCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'

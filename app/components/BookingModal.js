@@ -5,6 +5,7 @@ import Field, { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
 import MonthGrid from "./MonthGrid";
+import SlotPicker from "./ui/SlotPicker";
 import { NOTES_LIMIT, formatDateTime } from "../lib/leads";
 import { dayHasFreeSlot, periodsFor, slotsForDay } from "../lib/appointmentSlots";
 import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
@@ -313,25 +314,7 @@ export default function BookingModal({
                 </p>
               )}
 
-              <div className="slot-grid" role="radiogroup" aria-label="Time slots">
-                {slots.map((slot) => {
-                  const key = slot.start.toISOString();
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      role="radio"
-                      aria-checked={slotStart === key}
-                      className={`slot ${slotStart === key ? "active" : ""}`}
-                      disabled={!slot.free}
-                      title={slot.taken ? "Already booked" : slot.blocked ? "Blocked" : slot.past ? "In the past" : `${formatClock(slot.start)} – ${formatClock(slot.end)}`}
-                      onClick={() => setSlotStart(key)}
-                    >
-                      {formatClock(slot.start)}
-                    </button>
-                  );
-                })}
-              </div>
+              <SlotPicker slots={slots} value={slotStart} onChange={setSlotStart} />
 
               {visible("slot") && (
                 <p className="field-error" role="alert">

@@ -1,16 +1,17 @@
 /* Navigation for the two workspaces. One definition per workspace, used by every page that renders it. */
 
-// Staff CRM: the eight top-level sections. Views without an href live on "/" and are opened with ?view=<id>.
+// Staff CRM: the top-level sections. Views without an href live on "/" and are opened with ?view=<id>.
 // `views` lists extra "/" views that belong to a section (shown as tabs inside it, highlighted under it).
 export const CRM_NAV = [
   { id: "Dashboard", label: "Dashboard", icon: "dashboard", section: "Workspace" },
   { id: "Leads", label: "Leads", icon: "users", section: "Workspace", views: ["Follow Ups"] },
   { id: "Appointments", label: "Appointments", icon: "calendar", section: "Scheduling", views: ["Confirmed"] },
-  { id: "Clients", label: "Confirmed Clients", icon: "user", section: "Scheduling", href: "/clients" },
-  { id: "Sessions", label: "Sessions", icon: "clipboard", section: "Scheduling", href: "/sessions" },
-  { id: "FollowUpSessions", label: "Follow-up Sessions", icon: "note", section: "Scheduling", href: "/follow-ups" },
-  { id: "Psychologists", label: "Psychologists", icon: "userCheck", section: "Management", href: "/psychologists" },
+  { id: "Clients", label: "Clients", icon: "user", section: "Scheduling", href: "/clients" },
+  { id: "Psychologists", label: "Psychologists", icon: "userCheck", section: "Scheduling", href: "/psychologists" },
+  { id: "FollowUpSessions", label: "Follow-ups", icon: "note", section: "Scheduling", href: "/follow-ups" },
+  { id: "Availability", label: "Availability & Leave", icon: "clock", section: "Management", href: "/schedule" },
   { id: "Reports", label: "Reports", icon: "chart", section: "Management" },
+  { id: "Settings", label: "Settings", icon: "settings", section: "Management", href: "/services" },
 ];
 
 // Every view the "/" page can show: the sections without an href plus their extra views.
@@ -28,6 +29,13 @@ export function crmHref(id) {
   if (item && item.href) return item.href;
   return id === "Dashboard" ? "/" : `/?view=${encodeURIComponent(id)}`;
 }
+
+// Tabs inside Appointments. Sessions (what happened at each appointment) lives on /sessions.
+export const APPOINTMENT_TABS = [
+  { id: "Appointments", label: "Calendar" },
+  { id: "Confirmed", label: "Appointment list" },
+  { id: "Sessions", label: "Sessions" },
+];
 
 // Psychologist workspace (/psychologist). Sections switch in place (?section=<id>).
 export const PSYCHOLOGIST_NAV = [

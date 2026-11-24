@@ -29,8 +29,27 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deploy on Vercel (Kappiness CRM)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The deployed app talks to Supabase directly from the browser and from Vercel. It never calls a local server.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Environment variables** (Vercel → Project → Settings → Environment Variables; set for Production and Preview,
+and in `.env.local` for local development; see `.env.example`):
+
+| Name | Value |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API Keys / Data API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → API Keys → Publishable key (`sb_publishable_…`) |
+
+Never add the secret / service_role key: `NEXT_PUBLIC_*` values are sent to the browser. After changing a variable,
+redeploy (the values are built into the app).
+
+**Supabase sign-in return addresses** (Supabase → Authentication → URL Configuration). Google sign-in returns to
+`<site>/auth/callback`; Supabase only allows addresses on this list and otherwise falls back to the Site URL:
+
+- Site URL: `https://kappiness-crm-rust.vercel.app`
+- Redirect URLs: `https://kappiness-crm-rust.vercel.app/**`, `http://localhost:3000/**`, and your Vercel preview
+  pattern (for example `https://kappiness-crm-*.vercel.app/**`).
+
+If the Site URL is `http://localhost:3000` and the live address is missing from the list, signing in on the live site
+sends people to localhost, which only works while a local dev server is running.

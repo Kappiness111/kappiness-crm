@@ -6,7 +6,6 @@ import Dialog from "../components/psychologists/Dialog";
 import Icon from "../components/Icon";
 import Notice from "../components/psychologists/Notice";
 import PsychologistForm from "../components/psychologists/PsychologistForm";
-import PsychologistsTabs from "../components/psychologists/PsychologistsTabs";
 import PsychologistShell from "../components/psychologists/PsychologistShell";
 import PsychologistTable from "../components/psychologists/PsychologistTable";
 import useCurrentUser from "../components/psychologists/useCurrentUser";
@@ -172,7 +171,6 @@ export default function PsychologistsPage() {
 
   return (
     <PsychologistShell crumbs={[{ label: "Psychologists" }]}>
-      <PsychologistsTabs active="psychologists" />
       <header className="page-head">
         <div>
           <h1>Psychologists</h1>
