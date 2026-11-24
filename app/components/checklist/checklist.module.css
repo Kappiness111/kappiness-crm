@@ -1,0 +1,85 @@
+/* Session checklist and session details. Only existing theme tokens, so light and dark themes both work. */
+
+.checklist { display: grid; gap: 10px; }
+
+.progressRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.progressText { color: var(--text-2); white-space: nowrap; }
+.progressBar { flex: 1 1 120px; max-width: 220px; height: 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--divider); overflow: hidden; }
+.progressBar span { display: block; height: 100%; background: var(--success-dot); }
+
+/* Two short groups side by side; one column on narrow screens. */
+.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.flat .groups { grid-template-columns: minmax(0, 1fr); }
+.flat .steps { grid-template-columns: minmax(0, 1fr); }
+.group { margin: 0; padding: 8px 10px; border: 1px solid var(--divider); border-radius: var(--radius); min-width: 0; }
+.groupLabel { padding: 0 4px; color: var(--text-3); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.steps { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.step { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-radius: 6px; }
+.step input { margin-top: 2px; flex: none; }
+.step label { display: grid; gap: 1px; min-width: 0; cursor: pointer; }
+.stepName { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); }
+.stepName :global(.ui-svg) { width: 13px; height: 13px; color: var(--success-text); }
+.stepMeta { color: var(--text-3); font-size: 11.5px; }
+.naAction { padding: 2px 4px; border: 0; background: transparent; color: var(--text-3); font: inherit; font-size: 11px; cursor: pointer; }
+.naAction:hover { color: var(--text); text-decoration: underline; }
+.naForm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; padding-left: 22px; }
+.naForm input { width: min(180px, 100%); padding: 4px 6px; border: 1px solid var(--divider); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+
+.done .stepName { color: var(--success-text); font-weight: 550; }
+.pending .stepMeta { color: var(--text-3); }
+.na label { cursor: default; }
+.na .stepName { color: var(--text-3); text-decoration: line-through; }
+
+.compact .group { padding: 6px 8px; }
+.compact .step { padding: 3px 2px; }
+.flat .stepName, .flat .stepMeta { white-space: normal; }
+
+/* Session details */
+.summary { display: grid; gap: 6px; }
+.summaryRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.when { font-size: 15px; font-weight: 600; color: var(--text); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.nextGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.nextCard { padding: 10px 12px; border: 1px solid var(--divider); border-radius: var(--radius); background: var(--surface); display: grid; gap: 4px; font-size: 13px; min-width: 0; }
+.nextCard h5 { margin: 0; color: var(--text-3); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* Daily checklist rows */
+.dayList { list-style: none; margin: 0; padding: 0; }
+.dayRow { padding: 12px 16px; border-bottom: 1px solid var(--divider); display: grid; gap: 8px; }
+.dayRow:last-child { border-bottom: 0; }
+.dayHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dayHead .grow { flex: 1; }
+.datePicker { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.datePicker :global(.ui-svg) { width: 16px; height: 16px; }
+.datePicker input { width: auto; }
+.currentDay { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 1rem; font-weight: 600; }
+.currentDay :global(.ui-svg) { width: 16px; height: 16px; color: var(--text-2); }
+.therapist { color: var(--text-2); }
+.reminderStatus { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.expandedChecklist { padding-top: 4px; }
+.progressDropdown {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 18%));
+  white-space: normal;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sessionFollowUpForm { display: grid; gap: 10px; }
+.sessionFollowUpForm fieldset { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; }
+.sessionFollowUpForm legend { margin-bottom: 4px; color: var(--text-2); font-weight: 600; }
+.sessionFollowUpChoices { display: flex; flex-wrap: wrap; gap: 16px; }
+.sessionFollowUpChoices label { display: inline-flex; align-items: center; gap: 6px; }
+.sessionFollowUpFields { display: grid; gap: 8px; }
+
+@media (max-width: 599px) {
+  .groups, .nextGrid { grid-template-columns: minmax(0, 1fr); }
+}

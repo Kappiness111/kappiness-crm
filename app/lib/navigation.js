@@ -8,7 +8,7 @@ export const CRM_NAV = [
   { id: "Appointments", label: "Appointments", icon: "calendar", section: "Scheduling", views: ["Confirmed"] },
   { id: "Clients", label: "Confirmed Clients", icon: "user", section: "Scheduling", href: "/clients" },
   { id: "Sessions", label: "Sessions", icon: "clipboard", section: "Scheduling", href: "/sessions" },
-  { id: "FollowUpSessions", label: "Follow-up Sessions", icon: "note", section: "Scheduling", href: "/follow-ups" },
+  { id: "FollowUpSessions", label: "Follow-ups", icon: "note", section: "Scheduling", href: "/follow-ups" },
   { id: "Psychologists", label: "Psychologists", icon: "userCheck", section: "Management", href: "/psychologists" },
   { id: "Reports", label: "Reports", icon: "chart", section: "Management" },
 ];

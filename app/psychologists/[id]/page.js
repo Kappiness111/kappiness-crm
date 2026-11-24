@@ -10,6 +10,7 @@ import PsychologistForm from "../../components/psychologists/PsychologistForm";
 import PsychologistProfile from "../../components/psychologists/PsychologistProfile";
 import PsychologistWorkload from "../../components/psychologists/PsychologistWorkload";
 import BlockedPeriods from "../../components/scheduling/BlockedPeriods";
+import FollowUpCapacitySetting from "../../components/followups/FollowUpCapacitySetting";
 import PsychologistShell from "../../components/psychologists/PsychologistShell";
 import useCurrentUser from "../../components/psychologists/useCurrentUser";
 import { canManagePsychologists, describeError } from "../../lib/psychologists";
@@ -256,6 +257,8 @@ function PsychologistProfileView() {
           />
 
           <BlockedPeriods psychologistId={psychologist.id} canManage={canManage} notify={flash} />
+
+          <FollowUpCapacitySetting psychologistId={psychologist.id} canManage={canManage} notify={flash} />
         </>
       )}
 

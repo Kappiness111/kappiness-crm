@@ -1,0 +1,102 @@
+/* Follow-up screens. Only existing theme tokens, so light and dark themes both work. */
+
+/* One compact line of counts above the table; each count filters the table. */
+.countsLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0 0 12px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.countBtn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  padding: 2px 8px;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.countBtn:hover { border-color: var(--border-strong); color: var(--text); }
+.countBtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.countBtn strong { font-variant-numeric: tabular-nums; }
+.countDanger strong { color: var(--danger-text); }
+.countWarning strong { color: var(--warning-text); }
+.sep { color: var(--text-3); }
+
+/* Overdue and "wants to reschedule" rows stand out with a coloured edge (text badges carry the meaning). */
+.rowOverdue td:first-child { box-shadow: inset 3px 0 0 var(--danger-dot); }
+.rowReschedule td:first-child { box-shadow: inset 3px 0 0 var(--warning-dot); }
+
+.search { min-width: 180px; flex: 1 1 200px; max-width: 320px; }
+
+/* Reception contact rows */
+.contactList { list-style: none; margin: 0; padding: 0; }
+.contactRow { padding: 14px 16px; border-bottom: 1px solid var(--divider); }
+.contactRow:last-child { border-bottom: 0; }
+.contactHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.contactHead .grow { flex: 1; }
+.contactActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.hint { margin: 6px 0 0; color: var(--text-3); font-size: 12px; }
+
+/* Message choices and slot picker */
+.choiceRow { display: flex; flex-wrap: wrap; gap: 6px; }
+.dayRow { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+.dayBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dayBtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.dayBtn small { color: var(--text-3); }
+.dayFull small { color: var(--danger-text); }
+
+.slotGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
+.slotBtn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.slotBtn:disabled { cursor: not-allowed; background: var(--surface-2); color: var(--text-3); }
+.slotBtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.slotBtn small { color: var(--text-3); }
+
+.steps { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 13px; }
+.stepDone { color: var(--success-text); }
+.stepFailed { color: var(--danger-text); }
+
+/* Daily checklist */
+.checkGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 12px; }
+.checkItem { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.checkItem small { display: block; color: var(--text-3); font-size: 11.5px; }
+.checkCard { padding: 14px 16px; border-bottom: 1px solid var(--divider); }
+.checkCard:last-child { border-bottom: 0; }
+.checkHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 10px; }
+.checkHead .grow { flex: 1; }
+
+@media (max-width: 599px) {
+  .search { max-width: none; }
+  .slotGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
