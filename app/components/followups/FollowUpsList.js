@@ -142,7 +142,7 @@ export default function FollowUpsList({ viewer, psychologistId = null, psycholog
                 <th scope="col">Client</th>
                 <th scope="col">Type</th>
                 {showPsychologist && <th scope="col">Psychologist</th>}
-                <th scope="col">Proposed / due</th>
+                <th scope="col">Due date</th>
                 <th scope="col">Status</th>
                 <th scope="col">Communication</th>
               </tr>
@@ -181,7 +181,7 @@ export default function FollowUpsList({ viewer, psychologistId = null, psycholog
                       ) : (
                         <>
                           <DueDate row={row} />
-                          <small className="muted block">No time yet</small>
+                          <small className="muted block">Time not set</small>
                         </>
                       )}
                     </td>

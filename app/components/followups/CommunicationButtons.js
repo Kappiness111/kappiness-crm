@@ -22,7 +22,7 @@ export default function CommunicationButtons({ followUp, notify, onSaved, compac
       if (status === "No Response") {
         notify(
           result.createdFollowUpId
-            ? `No Response recorded for ${followUp.client_name || "the client"}. A call follow-up (Type B · Contact client, status Contact Needed) was created for reception.`
+            ? `No Response recorded for ${followUp.client_name || "the client"}. A call follow-up (Contact client, status Contact Needed) was created for reception.`
             : result.createdFollowUpId === null
               ? `No Response recorded for ${followUp.client_name || "the client"}. A call follow-up for reception (Contact Needed) already exists for this client.`
               : `No Response recorded for ${followUp.client_name || "the client"}. A call follow-up for reception (Contact Needed) is open for this client.`

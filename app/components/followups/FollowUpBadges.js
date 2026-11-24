@@ -33,8 +33,7 @@ export function FollowUpTypeBadge({ type, long = false }) {
   const meta = FOLLOW_UP_TYPE_META[type] || { short: type, label: "", description: "", tone: "neutral" };
   return (
     <Badge tone={meta.tone} title={meta.description}>
-      {meta.short}
-      {meta.label ? ` · ${meta.label}` : ""}
+      {meta.label || type}
       {long && meta.description ? <span className="sr-only">: {meta.description}</span> : null}
     </Badge>
   );
@@ -53,9 +52,11 @@ export function RescheduleBadge({ row }) {
 
 // Status + due state + reschedule flag, as shown in lists.
 export function FollowUpStatusCell({ row }) {
+  // An Upcoming follow-up that is overdue or due today shows only that due state; other statuses keep both.
+  const dueOnly = row.status === "Upcoming" && (row.due_state === "Overdue" || row.due_state === "Due Today");
   return (
     <span className="reminder-cell">
-      <FollowUpStatusBadge row={row} />
+      {dueOnly ? null : <FollowUpStatusBadge row={row} />}
       <DueStateBadge dueState={row.due_state} />
       <RescheduleBadge row={row} />
     </span>

@@ -27,8 +27,8 @@ function FollowUpsView() {
         <div>
           <h1>Follow-ups</h1>
           <p>
-            Type A is the client&apos;s next session; Type B means reception contacts the client again. Overdue items come first.
-            Record calls, messages and reminders here; nothing is sent from the CRM.
+            Next sessions and client calls in one place. Overdue items come first. Record calls, messages and reminders here;
+            nothing is sent from the CRM.
           </p>
         </div>
       </header>

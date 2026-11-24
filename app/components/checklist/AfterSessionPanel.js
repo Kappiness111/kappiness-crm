@@ -70,7 +70,7 @@ export default function AfterSessionPanel({ appointment, session, psychologistNa
   // Creating a follow-up is its own saved step, so a later failure never hides that it exists.
   async function createTypeA(recommendationId = null) {
     const saved = await createFollowUp({ clientId: appointment.client_id, type: "Type A", recommendationId });
-    record("created", recommendationId ? "Follow-up created (Type A · Next session, linked to the recommendation)" : "Follow-up created (Type A · Next session)");
+    record("created", recommendationId ? "Follow-up created (Next session, linked to the recommendation)" : "Follow-up created (Next session)");
     onChanged();
     return saved;
   }
@@ -91,7 +91,7 @@ export default function AfterSessionPanel({ appointment, session, psychologistNa
     const open = await listFollowUps({ clientId: appointment.client_id, type: "Type A", openOnly: true });
     if (open.length) {
       if (open[0].appointment_id) throw plainError("This client already has a booked next session.");
-      record("created", "Existing follow-up used (Type A · Next session)");
+      record("created", "Existing follow-up used (Next session)");
       return open[0];
     }
     const recommendations = await listRecommendations({ clientId: appointment.client_id, statuses: ["Open"] });

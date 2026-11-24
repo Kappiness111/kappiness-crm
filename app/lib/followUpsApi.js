@@ -111,6 +111,8 @@ const BOOKING_MESSAGES = [
   [/outside the psychologist's working hours/i, () => "That time is outside the psychologist's working hours. Choose a time inside their hours."],
   [/psychologist is unavailable at that time/i, () => "The psychologist is on leave or blocked at that time. Choose another slot."],
   [/time in the future/i, () => "That time has already passed. Choose a later slot."],
+  [/only a type a follow-up .*can hold a slot/i, () => "Only a next-session follow-up can hold a time slot."],
+  [/choose type a .*or type b/i, () => "Choose Next session or Contact client."],
 ];
 const RAW_DB_TEXT = /violates|constraint|row-level security|relation "|column "|syntax error|permission denied for/i;
 

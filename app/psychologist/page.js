@@ -517,7 +517,7 @@ function PsychologistDashboard() {
             <header className="page-head" style={{ marginTop: 24 }}>
               <div>
                 <h2>Follow-up records</h2>
-                <p>Type A (next session) and Type B (contact client) follow-ups for your clients. Read-only: the clinic team updates them.</p>
+                <p>Next sessions and client calls for your clients. Read-only: the clinic team updates them.</p>
               </div>
             </header>
             <FollowUpsList

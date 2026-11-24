@@ -2,6 +2,9 @@
 
 import { FOLLOW_UP_FILTER_STATUSES, FOLLOW_UP_TYPE_META, FOLLOW_UP_TYPES } from "../../lib/followUpsApi";
 
+// Plural wording for the filter (the stored values stay "Type A" / "Type B").
+const TYPE_FILTER_LABEL = { "Type A": "Next sessions", "Type B": "Clients to contact" };
+
 export const EMPTY_FOLLOW_UP_FILTERS = { psychologistId: "", status: "", type: "", dateFrom: "", dateTo: "" };
 
 /* Filters for follow-ups: psychologist, status, type and a due-date range. Uses the existing .toolbar styles.
@@ -44,11 +47,11 @@ export default function FollowUpFilters({
         </select>
       )}
       {show.type !== false && (
-        <select value={value.type} onChange={set("type")} aria-label="Filter by type">
-          <option value="">Type A and Type B</option>
+        <select value={value.type} onChange={set("type")} aria-label="Follow-up kind">
+          <option value="">All follow-ups</option>
           {FOLLOW_UP_TYPES.map((type) => (
             <option key={type} value={type}>
-              {type} · {FOLLOW_UP_TYPE_META[type].label}
+              {TYPE_FILTER_LABEL[type] || FOLLOW_UP_TYPE_META[type].label}
             </option>
           ))}
         </select>
