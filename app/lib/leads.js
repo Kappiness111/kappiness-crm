@@ -1,24 +1,38 @@
 /* Shared constants and helpers for the Kappiness CRM lead screens. */
 
 // These values must match the leads_status_check constraint and the update_lead_with_history RPC
-// (supabase/migrations/202611030002_lead_status_lost_and_psychologist.sql).
-export const STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform", "Confirmed", "Lost"];
-// A lost lead stays in the CRM for reporting, but drops out of follow-up reminders.
-export const CLOSED_STATUSES = ["Lost"];
-export const DEFAULT_STATUS = "Enquiry";
+// (supabase/migrations/20261123150448_lead_status_workflow_eight_statuses.sql).
+export const STATUSES = [
+  "New Lead",
+  "Contacted",
+  "Interested",
+  "Follow-up Required",
+  "Awaiting Confirmation",
+  "Confirmed",
+  "Not Interested",
+  "Lost Lead",
+];
+// Closed leads stay in the CRM for reporting, but drop out of follow-up reminders.
+export const CLOSED_STATUSES = ["Not Interested", "Lost Lead"];
+export const DEFAULT_STATUS = "New Lead";
 // Leads in these statuses have no confirmed appointment yet.
-export const UNCONFIRMED_STATUSES = ["Enquiry", "Yet to Confirm", "Will Inform"];
+export const UNCONFIRMED_STATUSES = ["New Lead", "Contacted", "Interested", "Follow-up Required", "Awaiting Confirmation"];
 export const CONFIRMED_STATUS = "Confirmed";
-export const LOST_STATUS = "Lost";
+export const LOST_STATUS = "Lost Lead";
+// Both closed statuses need a reason (leads.not_converted_reason); the database refuses them without one.
+export const REASON_REQUIRED_STATUSES = ["Not Interested", "Lost Lead"];
 
-// Allowed lead status changes. Confirmed and Lost are final. The database trigger enforce_lead_workflow
-// (migration 202611040001) applies the same table, so this only keeps the menus honest.
+// Allowed lead status changes. Confirmed, Not Interested and Lost Lead are final. The database trigger
+// enforce_lead_workflow (migration 20261123150448) applies the same table, so this only keeps the menus honest.
 export const STATUS_TRANSITIONS = {
-  Enquiry: ["Yet to Confirm", "Lost"],
-  "Yet to Confirm": ["Enquiry", "Will Inform", "Lost"],
-  "Will Inform": ["Yet to Confirm", "Confirmed", "Lost"],
+  "New Lead": ["Contacted", "Interested", "Follow-up Required", "Awaiting Confirmation", "Not Interested", "Lost Lead"],
+  Contacted: ["Interested", "Follow-up Required", "Awaiting Confirmation", "Not Interested", "Lost Lead"],
+  Interested: ["Follow-up Required", "Awaiting Confirmation", "Confirmed", "Not Interested", "Lost Lead"],
+  "Follow-up Required": ["Contacted", "Interested", "Awaiting Confirmation", "Confirmed", "Not Interested", "Lost Lead"],
+  "Awaiting Confirmation": ["Follow-up Required", "Confirmed", "Not Interested", "Lost Lead"],
   Confirmed: [],
-  Lost: [],
+  "Not Interested": [],
+  "Lost Lead": [],
 };
 
 // The current status plus the statuses it may move to, in pipeline order.
@@ -27,15 +41,26 @@ export function statusOptions(current) {
   return STATUSES.filter((status) => status === current || next.includes(status));
 }
 
-// Explains how an open lead reaches Confirmed when it cannot move there directly (only Will Inform can).
+// Explains how an open lead reaches Confirmed when it cannot move there directly. Derived from STATUS_TRANSITIONS:
+// only Interested, Follow-up Required and Awaiting Confirmation can move to Confirmed.
 export function confirmPathHint(current) {
-  if (current === "Enquiry") return "To confirm: move to Yet to Confirm, then Will Inform, then Confirmed.";
-  if (current === "Yet to Confirm") return "To confirm: move to Will Inform first, then Confirmed.";
-  return "";
+  const next = STATUS_TRANSITIONS[current] || [];
+  if (next.length === 0 || next.includes(CONFIRMED_STATUS)) return "";
+  const steps = next.filter((status) => (STATUS_TRANSITIONS[status] || []).includes(CONFIRMED_STATUS));
+  if (steps.length === 0) return "";
+  const list = steps.length === 1 ? steps[0] : `${steps.slice(0, -1).join(", ")} or ${steps[steps.length - 1]}`;
+  return `To confirm: move to ${list} first, then Confirmed.`;
 }
 
 export function canMoveStatus(from, to) {
   return from === to || (STATUS_TRANSITIONS[from] || []).includes(to);
+}
+
+// Day 23: a lead can be converted (Confirmed + client + first appointment, one transaction) only from a status that
+// may move straight to Confirmed: Interested, Follow-up Required or Awaiting Confirmation. The database
+// (convert_lead_to_appointment -> enforce_lead_workflow) applies the same rule.
+export function canConvertLead(status) {
+  return status !== CONFIRMED_STATUS && (STATUS_TRANSITIONS[status] || []).includes(CONFIRMED_STATUS);
 }
 
 /* ----- psychologist assignment ----- */
@@ -73,13 +98,85 @@ export function parseLostReason(value) {
   return { choice: LOST_REASON_OTHER, detail: other ? other[1] : text };
 }
 
-// Returns { choice?, detail? } error messages for a Lost reason.
-export function validateLostReason(choice, detail = "") {
+// Returns { choice?, detail? } error messages for a closed-status reason (Lost Lead by default).
+export function validateLostReason(choice, detail = "", status = LOST_STATUS) {
   const errors = {};
-  if (!LOST_REASONS.includes(choice)) errors.choice = "Choose why this lead was lost.";
-  else if (choice === LOST_REASON_OTHER && !detail.trim()) errors.detail = "Add a short explanation for Other.";
+  if (!LOST_REASONS.includes(choice)) {
+    errors.choice = status === LOST_STATUS ? "Choose why this lead was lost." : "Choose why this lead is not interested.";
+  } else if (choice === LOST_REASON_OTHER && !detail.trim()) errors.detail = "Add a short explanation for Other.";
   if (detail.length > LOST_DETAIL_LIMIT) errors.detail = `Keep the explanation under ${LOST_DETAIL_LIMIT} characters.`;
   return errors;
+}
+
+/* ----- closed statuses (Not Interested, Lost Lead): one reason mechanism for both ----- */
+
+export function isReasonRequired(status) {
+  return REASON_REQUIRED_STATUSES.includes(status);
+}
+
+// Field label for the reason of a closed status.
+export function reasonLabel(status) {
+  return status === LOST_STATUS ? "Lost reason" : `Reason (${status})`;
+}
+
+// The dropdown choice and explanation for a lead's saved reason; empty unless the lead is in a closed status.
+export function reasonFieldsFor(lead) {
+  const parsed = parseLostReason(isReasonRequired(lead.status) ? lead.not_converted_reason : "");
+  return { lost_reason: parsed.choice, lost_detail: parsed.detail };
+}
+
+// True when a draft's reason differs from the one saved on the lead.
+export function reasonEdited(draft, lead) {
+  const base = reasonFieldsFor(lead);
+  return draft.lost_reason !== base.lost_reason || draft.lost_detail !== base.lost_detail;
+}
+
+// Errors for the reason of a draft. Checked when the lead moves into a closed status or its reason is edited,
+// so older closed records without a reason stay editable (the database applies the same rule).
+export function closedReasonErrors(draft, lead) {
+  if (!isReasonRequired(draft.status)) return {};
+  if (draft.status === lead.status && !reasonEdited(draft, lead)) return {};
+  const found = validateLostReason(draft.lost_reason, draft.lost_detail, draft.status);
+  const errors = {};
+  if (found.choice) errors.lost_reason = found.choice;
+  if (found.detail) errors.lost_detail = found.detail;
+  return errors;
+}
+
+// What not_converted_reason should hold for a draft: the reason while in a closed status, cleared otherwise.
+// An untouched reason on a lead that is already in that status is kept exactly as saved.
+export function closedReasonFor(draft, lead) {
+  if (!isReasonRequired(draft.status)) return "";
+  if (draft.status === lead.status && !reasonEdited(draft, lead)) return lead.not_converted_reason || "";
+  return buildLostReason(draft.lost_reason, draft.lost_detail);
+}
+
+// not_converted_reason for a save: set when moving into a closed status, cleared when leaving one,
+// left out otherwise so other records keep whatever they already hold.
+export function reasonChangeFor(fromStatus, toStatus, reason) {
+  if (isReasonRequired(toStatus)) return { not_converted_reason: reason };
+  if (isReasonRequired(fromStatus)) return { not_converted_reason: "" };
+  return {};
+}
+
+// History text for a status change; closed statuses include their reason.
+export function statusChangeText(fromStatus, toStatus, reason = "") {
+  const text = `Status changed from ${fromStatus} to ${toStatus}`;
+  return isReasonRequired(toStatus) ? `${text}. Reason: ${reason}` : text;
+}
+
+// History text for an edited reason on a lead that stays in its closed status.
+export function reasonUpdateText(status, reason) {
+  return status === LOST_STATUS ? `Lost reason updated: ${reason}` : `${status} reason updated: ${reason}`;
+}
+
+// The page-level check before a save: a lead moving into a closed status needs a reason. Returns "" when fine.
+export function missingReasonMessage(lead, changes) {
+  if (!isReasonRequired(changes.status) || changes.status === lead.status) return "";
+  if ((changes.not_converted_reason || "").trim()) return "";
+  return changes.status === LOST_STATUS
+    ? "Choose a lost reason before marking this lead as Lost Lead."
+    : `Choose a reason before marking this lead as ${changes.status}.`;
 }
 
 /* ----- Supabase errors on lead saves ----- */

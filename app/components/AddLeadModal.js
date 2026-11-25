@@ -5,6 +5,7 @@ import { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
 import {
+  DEFAULT_STATUS,
   NOTES_LIMIT,
   CONTACT_METHODS,
   SERVICES,
@@ -429,7 +430,7 @@ export default function AddLeadModal({
           ) : isSaving ? (
             <span className="footer-meta" role="status">Saving lead...</span>
           ) : (
-            <span className="footer-meta">New leads start as Enquiry. Next step: call them and update the status.</span>
+            <span className="footer-meta">New leads start as {DEFAULT_STATUS}. Next step: call them and update the status.</span>
           )}
           <button type="button" className="secondary-button" onClick={requestClose} disabled={isSaving}>
             Cancel

@@ -49,7 +49,7 @@ SELECT
   (count(*) FILTER (WHERE l.next_follow_up_at < now()))::integer AS overdue
 FROM public.leads l
 WHERE l.next_follow_up_at IS NOT NULL
-  AND l.status NOT IN ('Confirmed', 'Lost')
+  AND l.status NOT IN ('Confirmed', 'Not Interested', 'Lost Lead')
 GROUP BY 1, 2;
 
 COMMENT ON VIEW public.dashboard_follow_up_calls IS

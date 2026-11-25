@@ -7,6 +7,7 @@ import ReminderUpdateDialog from "../followups/ReminderUpdateDialog";
 import { listDueReminders } from "../../lib/remindersApi";
 import { listRecommendations } from "../../lib/sessionsApi";
 import { APPOINTMENT_STATUS_LABEL } from "../../lib/statusLabels";
+import { CLOSED_STATUSES, CONFIRMED_STATUS } from "../../lib/leads";
 import { CountUp, Ring, SlotBar } from "../ui/MiniCharts";
 
 /* Staff dashboard: what needs attention today.
@@ -354,7 +355,7 @@ export default function ClinicDashboard({
   // Calls: open leads whose follow-up is due by the end of today (late ones first)
   const calls = now
     ? leads
-        .filter((l) => l.next_follow_up_at && l.status !== "Confirmed" && l.status !== "Lost" && new Date(l.next_follow_up_at) < endOfDay)
+        .filter((l) => l.next_follow_up_at && l.status !== CONFIRMED_STATUS && !CLOSED_STATUSES.includes(l.status) && new Date(l.next_follow_up_at) < endOfDay)
         .map((l) => ({ lead: l, at: new Date(l.next_follow_up_at), late: new Date(l.next_follow_up_at) < now }))
         .sort((a, b) => Number(b.late) - Number(a.late) || a.at - b.at)
     : [];

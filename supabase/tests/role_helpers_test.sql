@@ -21,7 +21,7 @@
 --   (confirmed on live 4 Nov 2026). phone is assumed to exist (the app reads it); it is not confirmed as
 --   NOT NULL, so the fixture supplies it.
 --
--- Related suites: scheduling_access_test.sql (sessions, notes, availability), lead_workflow_test.sql.
+-- Related suites: scheduling_access_test.sql (sessions, notes, availability), lead_status_workflow_test.sql.
 --
 -- WHAT IS COVERED
 --   A. Catalog checks: definitions, SECURITY DEFINER, search_path, execute grants.

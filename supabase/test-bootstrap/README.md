@@ -63,8 +63,12 @@ psql "$TEST_DB_URL" --no-psqlrc -v ON_ERROR_STOP=1 \
 # Steps 5-10: the production path, in production order (each file is its own transaction).
 psql "$TEST_DB_URL" --no-psqlrc -v ON_ERROR_STOP=1   -c "SET kappiness.test_env = 'disposable'"   -f supabase/migrations/202611030002_lead_status_lost_and_psychologist.sql   -f supabase/migrations/202611040001_clients_appointments_sessions.sql   -f supabase/test-bootstrap/06_add_temporary_staff.sql   -f supabase/migrations/202611130001_remediate_role_helpers_and_availability.sql   -f supabase/migrations/202611130002_appointment_reminders.sql   -f supabase/test-bootstrap/07_remove_temporary_staff.sql
 
-# Step 11: the suites, one session each.
-for t in role_helpers_test scheduling_access_test lead_workflow_test appointment_reminders_test; do
+# Step 10b: Day 21 lead statuses (20261123150448). NOT yet on production; required by lead_status_workflow_test.
+psql "$TEST_DB_URL" --no-psqlrc -v ON_ERROR_STOP=1   -c "SET kappiness.test_env = 'disposable'"   -f supabase/migrations/20261123161850_lead_status_workflow_eight_statuses.sql
+
+# Step 11: the suites, one session each. (lead_workflow_test.sql pinned the pre-Day-21 workflow and is retired in
+# supabase/tests_superseded/; lead_status_workflow_test.sql replaces it.)
+for t in role_helpers_test scheduling_access_test lead_status_workflow_test appointment_reminders_test; do
   psql "$TEST_DB_URL" --no-psqlrc -v ON_ERROR_STOP=1 \
     -c "SET kappiness.test_env = 'disposable'" -f "supabase/tests/$t.sql" || break
 done

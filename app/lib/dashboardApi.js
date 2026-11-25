@@ -52,7 +52,7 @@ export async function loadDashboardCounts({ start, end, psychologistId, appointm
     leads: {
       total: sum(l, "leads"),
       newInPeriod: sum(l, "leads", (row) => row.created_day >= from && row.created_day < to),
-      awaiting: sum(l, "leads", (row) => row.status === "Yet to Confirm" || row.status === "Will Inform"),
+      awaiting: sum(l, "leads", (row) => row.status === "Awaiting Confirmation"),
     },
     followUpCalls: {
       due: sum(c, "calls", (row) => row.due_day >= from && row.due_day < to),

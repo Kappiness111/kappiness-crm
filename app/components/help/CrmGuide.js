@@ -40,7 +40,7 @@ const TOPICS = [
           When someone calls, messages or walks in, press <strong>Add lead</strong> on the dashboard. You only need their
           name, phone number and where they heard about the clinic. Email and notes can wait.
         </p>
-        <p>New leads start as <StatusBadge status="Enquiry" />.</p>
+        <p>New leads start as <StatusBadge status="New Lead" />.</p>
       </>
     ),
     preview: (
@@ -68,12 +68,13 @@ const TOPICS = [
           After each call, open the lead, update its status and pick when to call next. The status shows where they are:
         </p>
         <p className="hp-flow">
-          <StatusBadge status="Enquiry" /> <span>then</span> <StatusBadge status="Yet to Confirm" /> <span>then</span>{" "}
-          <StatusBadge status="Will Inform" /> <span>then</span> <StatusBadge status="Confirmed" />
+          <StatusBadge status="New Lead" /> <span>then</span> <StatusBadge status="Contacted" /> <span>then</span>{" "}
+          <StatusBadge status="Interested" /> <span>then</span> <StatusBadge status="Awaiting Confirmation" /> <span>then</span>{" "}
+          <StatusBadge status="Confirmed" />
         </p>
         <p>
           Calls due today appear at the top of the dashboard. If one is missed it turns red until someone calls. A lead
-          who isn&apos;t going ahead is marked <StatusBadge status="Lost" />.
+          who isn&apos;t going ahead is marked <StatusBadge status="Not Interested" /> or <StatusBadge status="Lost Lead" />.
         </p>
       </>
     ),

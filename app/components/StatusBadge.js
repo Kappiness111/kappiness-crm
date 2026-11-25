@@ -1,13 +1,17 @@
 /* Lead status as a compact badge. Colour carries meaning only:
-   neutral = new enquiry, warning = waiting on the client, info = client will get back,
-   success = confirmed, danger = lost. The text is always shown, so colour is never the only signal. */
+   neutral = new lead, info = in conversation, warning = waiting on a follow-up or the client,
+   success = confirmed, danger = closed without converting. The text is always shown, so colour is never the
+   only signal. */
 
 export const STATUS_TONE = {
-  Enquiry: "neutral",
-  "Yet to Confirm": "warning",
-  "Will Inform": "info",
+  "New Lead": "neutral",
+  Contacted: "info",
+  Interested: "info",
+  "Follow-up Required": "warning",
+  "Awaiting Confirmation": "warning",
   Confirmed: "success",
-  Lost: "danger",
+  "Not Interested": "danger",
+  "Lost Lead": "danger",
 };
 
 export function statusTone(status) {
