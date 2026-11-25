@@ -95,3 +95,24 @@ export async function recordReminderResponse(reminderId, values) {
   if (error) throw error;
   return Array.isArray(data) ? data[0] : data;
 }
+
+// Reminders still to send by the end of `until` (default: today), for active bookings only, oldest first.
+// Psychologists may not read reminders: then this resolves to { allowed: false, rows: [] }.
+export async function listDueReminders(until = null) {
+  const supabase = createClient();
+  const end = until ? new Date(until) : new Date();
+  if (!until) end.setHours(23, 59, 59, 999);
+  const { data, error } = await supabase
+    .from("appointment_reminders")
+    .select(`${COLUMNS}, appointment:appointments(id, status, starts_at, psychologist_id, client:clients(id, full_name, phone))`)
+    .eq("delivery_status", "Pending")
+    .lte("due_at", end.toISOString())
+    .order("due_at", { ascending: true })
+    .limit(50);
+  if (error) {
+    if (error.code === "42501" || error.code === "PGRST301") return { allowed: false, rows: [] };
+    throw error;
+  }
+  const active = ["Scheduled", "Confirmed"];
+  return { allowed: true, rows: (data || []).filter((row) => row.appointment && active.includes(row.appointment.status)) };
+}

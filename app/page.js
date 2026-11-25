@@ -13,7 +13,7 @@ import { CRM_NAV, CRM_VIEWS, crmSectionOf, roleLabel } from "./lib/navigation";
 import PageTabs from "./components/PageTabs";
 import NotificationCenter from "./components/notifications/NotificationCenter";
 import FollowUpReport from "./components/reports/FollowUpReport";
-import DashboardTop from "./components/dashboard/DashboardTop";
+import ClinicDashboard from "./components/dashboard/ClinicDashboard";
 import { daySummary, scheduleForDay } from "./lib/scheduleCapacity";
 import { HelpButton } from "./components/help/CrmGuide";
 import { createClient } from "../utils/supabase/client";
@@ -1700,6 +1700,81 @@ const filteredLeads = useMemo(() => {
     );
   }
 
+  function renderDashboardHero() {
+    const a = analytics;
+    const option = rangeOption();
+    const total = a ? a.total : 0;
+    const confirmed = a ? a.byStatus[CONFIRMED_STATUS] || 0 : 0;
+    const lost = a ? a.byStatus[LOST_STATUS] || 0 : 0;
+    const enquiries = a ? a.byStatus.Enquiry || 0 : 0;
+    const pending = leadsLoading || !a;
+
+    const kpis = [
+      { label: "Total leads", value: total, icon: "users", status: "All" },
+      { label: "New enquiries", value: enquiries, icon: "inbox", status: "Enquiry" },
+      { label: "Confirmed", value: confirmed, icon: "userCheck", status: CONFIRMED_STATUS },
+      { label: "Lost", value: lost, icon: "alert", status: LOST_STATUS },
+    ];
+
+    return (
+      <section className="dash-hero" aria-label="Overview">
+        <div className="dash-hero-main">
+          <h1 className="dash-greeting">
+            {getGreeting(now)}
+            {firstName ? `, ${firstName}` : ""}
+          </h1>
+          <p className="dash-date">
+            {now ? `It's ${now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}` : "Today"}
+          </p>
+          <div className="dash-hero-rule" aria-hidden="true" />
+          <div className="dash-kpis">
+            {kpis.map((kpi) => (
+              <button
+                key={kpi.label}
+                type="button"
+                className="dash-kpi"
+                onClick={() => (kpi.page ? navigateTo(kpi.page) : goToLeads(kpi.status))}
+              >
+                <span className="dash-kpi-value">
+                  <span className="dash-kpi-icon" aria-hidden="true">
+                    <Icon name={kpi.icon} />
+                  </span>
+                  {pending && !kpi.live ? "…" : kpi.value}
+                </span>
+                <span className="dash-kpi-label">{kpi.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="dash-kpi-note">
+            Lead counts cover the last {option.label}
+            {a && !leadsLoading ? ` (${deltaText(a, option)})` : ""}.
+          </p>
+        </div>
+
+        <div className="dash-hero-side">
+          <div className="dash-hero-tools">
+            <RangeTabs
+              label="Leads counted"
+              value={dashScope}
+              onChange={setDashScope}
+              options={[
+                { id: "all", short: "All", title: "Every lead in the CRM" },
+                { id: "mine", short: "Mine", title: "Leads assigned to or updated by you" },
+              ]}
+            />
+            <RangeTabs value={dashRange} onChange={setDashRange} options={RANGE_OPTIONS.map((item) => ({ ...item, title: `Last ${item.label}` }))} />
+          </div>
+          <ArcGauge
+            value={confirmed}
+            total={leadsLoading ? 0 : total}
+            label="Lead conversion"
+            caption={leadsLoading ? "Loading leads…" : total ? `${confirmed} of ${total} leads confirmed` : "No leads in this period"}
+          />
+        </div>
+      </section>
+    );
+  }
+
   function renderTrendCard() {
     const a = analytics;
     const option = rangeOption();
@@ -1729,7 +1804,7 @@ const filteredLeads = useMemo(() => {
         )}
         {a && (
           <LineChart
-            height={200}
+            height={170}
             data={a.trend}
             series={[
               { id: "leads", label: "New leads", color: "var(--chart-1)" },
@@ -1930,7 +2005,6 @@ const filteredLeads = useMemo(() => {
     .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
   const firstName = (currentStaff.name || "").split(" ")[0];
   // Today at the clinic: the same slot and capacity rules as the Availability & Leave page.
-  const todayLoading = !now || schedulingState === "loading";
   const todayDays =
     now && schedulingState === "ready"
       ? scheduleForDay(
@@ -1951,8 +2025,6 @@ const filteredLeads = useMemo(() => {
     .filter((day) => day.onLeave)
     .map((day) => day.psychologist.name)
     .join(", ");
-  const openLeadCount = leads.filter((lead) => lead.status !== "Confirmed" && lead.status !== "Lost").length;
-  const awaitingLeadCount = leads.filter((lead) => lead.status === "Yet to Confirm" || lead.status === "Will Inform").length;
 
   // Notifications come from real CRM records; changes made in this tab are listed under "Just now".
   // Guide steps open the matching screen or form in place.
@@ -2017,92 +2089,31 @@ const filteredLeads = useMemo(() => {
       user={{ name: currentStaff.name, email: currentStaff.email, roleLabel: roleLabel(currentStaff.role) }}
     >
       {activePage === "Dashboard" && (
-        <div className="home">
-          <DashboardTop
-            greeting={`${getGreeting(now)}${firstName ? `, ${firstName}` : ""}`}
-            dateLabel={now ? now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : ""}
-            now={now}
-            leads={leads}
-            leadsLoading={leadsLoading}
-            clients={clients}
-            canBook={canScheduleAppointments}
-            onAddLead={openAddForm}
-            onAddClient={openAddForm}
-            onBook={() => openBooking()}
-            onScheduleFollowUp={() => router.push("/follow-ups?view=open")}
-            onSendReminder={() => router.push("/follow-ups?view=action")}
-            onOpenFollowUpCalls={() => navigateTo("Follow Ups")}
-            onOpenLeads={goToLeads}
-          />
-
-          <section className="home-kpis" aria-label="Today at the clinic">
-            {[
-              {
-                icon: "calendar",
-                label: "Appointments today",
-                value: today.booked,
-                meta: `${today.confirmed} confirmed · ${today.willInform} awaiting`,
-                onClick: () => navigateTo("Confirmed"),
-              },
-              {
-                icon: "clock",
-                label: "Open slots today",
-                value: today.available,
-                meta: today.capacity ? `of ${today.capacity} · ${today.utilisation}% booked` : "No working hours today",
-                onClick: () => router.push("/schedule"),
-              },
-              {
-                icon: "users",
-                label: "Open leads",
-                value: openLeadCount,
-                meta: `${awaitingLeadCount} waiting to confirm`,
-                onClick: () => goToLeads("All"),
-              },
-              {
-                icon: "userCheck",
-                label: "On leave today",
-                value: today.onLeave,
-                meta: today.onLeave ? leaveNames : "Everyone is in",
-                onClick: () => router.push("/schedule"),
-              },
-            ].map((kpi) => (
-              <button key={kpi.label} type="button" className="home-kpi" onClick={kpi.onClick}>
-                <span className="home-kpi-icon" aria-hidden="true">
-                  <Icon name={kpi.icon} />
-                </span>
-                <span className="home-kpi-text">
-                  <span className="home-kpi-value">{todayLoading && kpi.icon !== "users" ? "…" : kpi.value}</span>
-                  <span className="home-kpi-label">{kpi.label}</span>
-                  <span className="home-kpi-meta">{todayLoading && kpi.icon !== "users" ? "Loading…" : kpi.meta}</span>
-                </span>
-              </button>
-            ))}
-          </section>
-
-          <section className="home-leads" aria-labelledby="home-leads-title">
-            <div className="home-section-head">
-              <h2 id="home-leads-title">Leads</h2>
-              <div className="report-trend-tools">
-                <RangeTabs
-                  label="Leads counted"
-                  value={dashScope}
-                  onChange={setDashScope}
-                  options={[
-                    { id: "all", short: "All", title: "Every lead in the CRM" },
-                    { id: "mine", short: "Mine", title: "Leads assigned to or updated by you" },
-                  ]}
-                />
-                <RangeTabs value={dashRange} onChange={setDashRange} options={RANGE_OPTIONS.map((item) => ({ ...item, title: `Last ${item.label}` }))} />
-              </div>
-            </div>
-            <div className="home-charts">
-              {renderTrendCard()}
-              {renderStatusCard()}
-            </div>
-            {renderRecentLeadsCard()}
-          </section>
-        </div>
+        <ClinicDashboard
+          now={now}
+          greeting={getGreeting(now)}
+          firstName={firstName}
+          leads={leads}
+          leadsLoading={leadsLoading}
+          clients={clients}
+          appointments={appointments}
+          schedulingReady={schedulingState === "ready" && Boolean(now)}
+          todayDays={todayDays}
+          activityLog={activityLog}
+          canBook={canScheduleAppointments}
+          onAddLead={openAddForm}
+          onBook={() => openBooking()}
+          onOpenLead={(lead) => openLead(lead)}
+          onOpenClient={(id) => router.push(`/clients/${id}`)}
+          onSeeCalls={() => navigateTo("Follow Ups")}
+          onSeeCalendar={() => navigateTo("Appointments")}
+          onSeeAppointments={() => navigateTo("Confirmed")}
+          onSeeSchedule={() => router.push("/schedule")}
+          onSeeFollowUps={(view) => router.push(`/follow-ups?view=${view}`)}
+          notify={flash}
+        />
       )}
+      {activePage === "Dashboard" && <div className="cd-leads">{renderRecentLeadsCard()}</div>}
 
       {activePage === "Leads" && (
         <>
@@ -2539,10 +2550,8 @@ const filteredLeads = useMemo(() => {
               <h1>Reports</h1>
               <p>
                 {reportTab === "leads"
-                  ? "How leads are progressing: status, source, reasons for losing leads and staff workload."
-                  : reportTab === "trends"
-                    ? "Where leads come from, why they are lost, and who is handling them."
-                    : "Every booked follow-up session, by psychologist and status."}
+                  ? "Where leads come from, how psychologists convert them, why leads are lost and who handles them."
+                  : "Every booked follow-up session, by psychologist and status."}
               </p>
             </div>
           </header>
@@ -2553,12 +2562,11 @@ const filteredLeads = useMemo(() => {
             onSelect={setReportTab}
             items={[
               { id: "leads", label: "Leads" },
-              { id: "trends", label: "Trends" },
               { id: "followups", label: "Follow-up sessions" },
             ]}
           />
 
-          {reportTab === "trends" && (
+          {reportTab === "leads" && (
             <div className="dash report-trends">
               <div className="report-trend-tools">
                 <RangeTabs
@@ -2580,37 +2588,7 @@ const filteredLeads = useMemo(() => {
 
           {reportTab === "leads" && (
           <>
-          <section className="kpis" aria-label="Report summary">
-            <div className="kpi">
-              <span className="kpi-label">Total leads</span>
-              <span className="kpi-value">{totalLeads}</span>
-              <span className="kpi-meta">All time</span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">Confirmed</span>
-              <span className="kpi-value">{confirmedCount}</span>
-              <span className="kpi-meta">{totalLeads ? `${confirmedShare}% of leads` : "—"}</span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">Lost</span>
-              <span className="kpi-value">{lostCount}</span>
-              <span className="kpi-meta">{totalLeads ? `${Math.round((lostCount / totalLeads) * 100)}% of leads` : "—"}</span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">Staff with leads</span>
-              <span className="kpi-value">{staffCount}</span>
-              <span className="kpi-meta">Assigned staff</span>
-            </div>
-          </section>
-
           <div className="split even">
-            {renderBreakdown(
-              "Leads by status",
-              STATUSES.map((status) => [status, statusCounts[status]]).filter(([, count]) => count > 0),
-              "No leads yet.",
-              "Status"
-            )}
-            {renderBreakdown("Leads by source", countBy((lead) => lead.source), "No leads yet.", "Source")}
             {renderBreakdown(
               "Why leads were lost",
               countBy((lead) => (lead.status === LOST_STATUS ? parseLostReason(lead.not_converted_reason).choice || "No reason recorded" : "")),

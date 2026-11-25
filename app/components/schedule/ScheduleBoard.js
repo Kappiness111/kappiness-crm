@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CountUp, Ring, SlotBar } from "../ui/MiniCharts";
 import "../../schedule/schedule.css";
 import ConfirmDialog from "../ConfirmDialog";
 import Icon from "../Icon";
@@ -378,27 +379,77 @@ export default function ScheduleBoard({ viewer, notify, onOpenClient, compact = 
         )
       ) : (
         <>
-          <section className="kpis sched-kpis" aria-label="Daily summary">
-            {cards.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                className={`kpi sched-tile ${card.tone ? `is-${card.tone}` : ""}`}
-                aria-pressed={statusFilter === card.id}
-                onClick={() => setStatusFilter(card.id === statusFilter ? "all" : card.id)}
+          <section className="sched-overview" aria-label="Day overview">
+            <div className="sched-ov-grid">
+              <Ring
+                size={120}
+                stroke={12}
+                label={`${summary.booked} of ${summary.capacity} slots booked`}
+                segments={[
+                  { value: summary.confirmed, tone: "ok" },
+                  { value: summary.willInform, tone: "wait" },
+                  { value: Math.max(0, summary.booked - summary.confirmed - summary.willInform), tone: "brand" },
+                  { value: summary.available, tone: "free" },
+                ]}
               >
-                <span className="kpi-label">{card.label}</span>
-                <span className="kpi-value">
-                  {loading ? "…" : card.value} <small>{loading ? "" : card.unit}</small>
-                </span>
-                <span className="kpi-meta">{card.meta}</span>
-                {card.bar !== undefined ? (
-                  <span className="sched-kpi-bar" aria-hidden="true">
-                    <span style={{ width: `${loading ? 0 : card.bar}%` }} />
-                  </span>
-                ) : null}
-              </button>
-            ))}
+                <b>{loading ? "…" : <CountUp value={summary.utilisation} suffix="%" />}</b>
+                <small>booked</small>
+              </Ring>
+              <div className="sched-ov-people" aria-label="Slots per psychologist">
+                {days.length === 0 && !loading ? <p className="subtle-text">No psychologists are working on this day.</p> : null}
+                {days.slice(0, 6).map((d) => {
+                  const waiting = d.dayAppointments.filter((item) => item.status === "Scheduled").length;
+                  const confirmed = d.dayAppointments.filter((item) => item.status === "Confirmed").length;
+                  return (
+                    <div key={d.psychologist.id} className="sched-ov-person">
+                      <span className="sched-ov-name">{d.psychologist.name}</span>
+                      <SlotBar
+                        label={`${d.psychologist.name}: ${d.booked} of ${d.capacity} booked`}
+                        parts={
+                          d.onLeave
+                            ? [{ value: 1, tone: "late" }]
+                            : [
+                                { value: confirmed, tone: "ok" },
+                                { value: waiting, tone: "wait" },
+                                { value: Math.max(0, d.booked - confirmed - waiting), tone: "brand" },
+                                { value: d.available, tone: "free" },
+                              ]
+                        }
+                      />
+                      <span className="sched-ov-count">{d.onLeave ? "On leave" : `${d.booked}/${d.capacity}`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="sched-ov-top">
+              <div>
+                <strong className="sched-ov-big">{loading ? "…" : summary.booked}</strong>
+                <span className="sched-ov-of">of {loading ? "…" : summary.capacity} slots booked · {loading ? "…" : `${summary.utilisation}%`}</span>
+              </div>
+              {statusFilter !== "all" ? (
+                <button type="button" className="link-btn" onClick={() => setStatusFilter("all")}>
+                  Show everything
+                </button>
+              ) : null}
+            </div>
+            <div className="sched-ov-keys" role="group" aria-label="Show only">
+              {cards
+                .filter((card) => card.id !== "all")
+                .map((card) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className={`sched-key ${card.tone ? `is-${card.tone}` : ""}`}
+                    aria-pressed={statusFilter === card.id}
+                    onClick={() => setStatusFilter(card.id === statusFilter ? "all" : card.id)}
+                    title={card.meta}
+                  >
+                    <i aria-hidden="true" />
+                    <b>{loading ? "…" : card.value}</b> {card.label.toLowerCase()}
+                  </button>
+                ))}
+            </div>
           </section>
 
           <div className="toolbar sched-filters">

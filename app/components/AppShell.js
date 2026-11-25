@@ -283,11 +283,8 @@ export default function AppShell({
       </a>
       <aside className="sidebar" id="app-sidebar" aria-label="Main navigation">
         <div className="sb-brand">
-          <Image src="/kappiness_logo_sq.jpeg" alt="" width={34} height={34} className="sb-logo" priority />
-          <span className="sb-wordmark">
-            <strong>Kappiness</strong>
-            <span>{workspaceLabel}</span>
-          </span>
+          <Image src="/kappiness_logo_wide.png" alt="Kappiness" width={118} height={54} className="sb-logo-wide" priority />
+          <Image src="/kappiness_mark.png" alt="Kappiness" width={38} height={38} className="sb-logo" priority />
         </div>
 
         <nav className="sb-nav" onMouseLeave={() => setTip(null)}>

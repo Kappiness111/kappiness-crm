@@ -132,3 +132,111 @@
 .slot-dialog-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--divider); }
 .slot-dialog-actions > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .confirm-body p { margin: 0; color: var(--text-2); line-height: 1.5; }
+
+/* =====================================================================
+   Availability & Leave, diary layout: one overview bar for the day, then each
+   psychologist's day as time-ordered rows with a coloured edge for the status.
+   ===================================================================== */
+.sched-overview { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.sched-ov-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sched-ov-big { font-family: var(--font-display); font-size: 34px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; margin-right: 8px; }
+.sched-ov-of { font-size: 13.5px; color: var(--text-3); }
+.sched-ov-bar { display: flex; gap: 3px; height: 12px; border-radius: 999px; overflow: hidden; background: var(--chart-track); }
+.sched-ov-bar span { display: block; min-width: 6px; height: 100%; }
+.sched-ov-bar .is-ok, .strip-ok { background: var(--success-dot); }
+.sched-ov-bar .is-wait, .strip-wait { background: var(--warning-dot); }
+.sched-ov-bar .is-done, .strip-done { background: var(--neutral-dot); }
+.sched-ov-bar .is-free, .strip-free { background: color-mix(in srgb, var(--brand) 22%, var(--surface-3)); }
+.sched-ov-keys { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.sched-key { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: 13px; }
+.sched-key b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sched-key i { width: 9px; height: 9px; border-radius: 50%; background: var(--neutral-dot); }
+.sched-key.is-free i { background: color-mix(in srgb, var(--brand) 45%, var(--surface-3)); }
+.sched-key.is-ok i { background: var(--success-dot); }
+.sched-key.is-wait i { background: var(--warning-dot); }
+.sched-key.is-info i { background: var(--info-dot); }
+.sched-key.is-leave i { background: var(--danger-dot); }
+.sched-key:hover { border-color: var(--border-strong); color: var(--text); }
+.sched-key[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); color: var(--text); }
+
+/* psychologist card */
+.prac-card { gap: 10px; padding: 16px; border-radius: 16px; }
+.prac-head { align-items: center; }
+.prac-avatar { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-size: 13px; font-weight: 700; }
+.prac-id { flex: 1; }
+.prac-id h3 { font-size: 15px; font-weight: 650; }
+.prac-count strong { font-family: var(--font-display); font-size: 20px; font-weight: 600; }
+.prac-strip { display: flex; gap: 3px; height: 8px; }
+.prac-strip span { flex: 1; border-radius: 3px; background: var(--surface-3); }
+.prac-strip .strip-leave { background: repeating-linear-gradient(135deg, var(--danger-bg) 0 3px, var(--surface-3) 3px 6px); }
+.prac-strip .strip-passed { background: var(--divider); }
+.prac-empty { margin: 4px 0 0; padding: 12px; border-radius: var(--radius); background: var(--surface-2); font-size: 12.5px; color: var(--text-3); text-align: center; }
+
+/* slot rows: time on the left, a coloured edge for the status */
+.slot-list { gap: 4px; }
+.sched-slot { grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; min-height: 48px; padding: 6px 8px 6px 10px; border: 0; border-radius: 10px; background: var(--surface-2); box-shadow: inset 3px 0 0 var(--border-strong); }
+.sched-slot.tone-confirmed { box-shadow: inset 3px 0 0 var(--success-dot); }
+.sched-slot.tone-willinform { box-shadow: inset 3px 0 0 var(--warning-dot); background: color-mix(in srgb, var(--warning-bg) 55%, var(--surface-2)); }
+.sched-slot.tone-rescheduled { box-shadow: inset 3px 0 0 var(--info-dot); }
+.sched-slot.slot-free { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
+.sched-slot.slot-free:hover { box-shadow: inset 0 0 0 1px var(--brand); background: var(--brand-soft); }
+.sched-slot.slot-leave { background: repeating-linear-gradient(135deg, var(--surface-2) 0 8px, var(--surface-3) 8px 16px); box-shadow: inset 3px 0 0 var(--danger-dot); }
+.sched-slot.slot-off { background: transparent; box-shadow: none; opacity: 0.65; }
+.slot-when { display: flex; flex-direction: column; line-height: 1.2; }
+.slot-when b { font-size: 12.5px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slot-when small { font-size: 10.5px; color: var(--text-3); }
+.slot-name.is-free { color: var(--brand); font-weight: 600; }
+.slot-icon { border-radius: 8px; }
+
+/* Availability & Leave: date bar, overview chart, card rings */
+.sched-toolbar { align-items: center; }
+.sched-date { flex-wrap: nowrap; gap: 6px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.sched-date input[type="date"] { width: auto; flex: 0 0 auto; height: 36px; border: 0; background: transparent; font-weight: 600; padding: 0 8px; }
+.sched-date .icon-btn { width: 36px; height: 36px; flex: 0 0 36px; }
+.sched-date .btn { height: 36px; }
+.sched-date-label { white-space: nowrap; margin: 0 8px 0 4px; }
+@media (max-width: 699px) { .sched-date { flex-wrap: wrap; } .sched-date-label { flex-basis: 100%; margin: 4px 6px; } }
+
+.sched-overview { gap: 16px; padding: 20px 22px; }
+.sched-ov-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 28px; }
+.sched-ov-grid .mc-ring-center b { font-size: 26px; }
+.sched-ov-people { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sched-ov-person { display: grid; grid-template-columns: minmax(90px, 160px) minmax(0, 1fr) 64px; align-items: center; gap: 12px; }
+.sched-ov-name { font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-ov-count { font-size: 12.5px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
+.sched-ov-top { padding-top: 12px; border-top: 1px solid var(--divider); }
+.sched-ov-big { font-size: 22px; }
+@media (max-width: 599px) {
+  .sched-ov-grid { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; }
+  .sched-ov-people { width: 100%; }
+  .sched-ov-person { grid-template-columns: minmax(70px, 110px) minmax(0, 1fr) 52px; }
+}
+
+.prac-count .mc-ring-center b { font-size: 16px; font-weight: 600; }
+.prac-count .mc-ring-center small { font-size: 10px; }
+.prac-card { transition: border-color 140ms var(--ease); animation: cd-rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.prac-card:hover { border-color: var(--border-strong); }
+.prac-grid > :nth-child(2) { animation-delay: 70ms; }
+.prac-grid > :nth-child(3) { animation-delay: 140ms; }
+.prac-grid > :nth-child(4) { animation-delay: 210ms; }
+@media (prefers-reduced-motion: reduce) { .prac-card { animation: none; } }
+.prac-strip .strip-ok { background: var(--mc-ok); }
+.prac-strip .strip-wait { background: var(--mc-wait); }
+.prac-strip .strip-done { background: var(--mc-brand); }
+.prac-strip .strip-free { background: var(--mc-free); }
+.prac-strip span { transform-origin: left; animation: strip-in 700ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.prac-strip span:nth-child(2) { animation-delay: 40ms; } .prac-strip span:nth-child(3) { animation-delay: 80ms; } .prac-strip span:nth-child(4) { animation-delay: 120ms; }
+.prac-strip span:nth-child(5) { animation-delay: 160ms; } .prac-strip span:nth-child(6) { animation-delay: 200ms; } .prac-strip span:nth-child(n + 7) { animation-delay: 240ms; }
+@keyframes strip-in { from { transform: scaleX(0); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .prac-strip span { animation: none; } }
+
+/* Theme colours on this page too: blue for waiting, green for confirmed, grey for leave */
+.sched-slot.tone-willinform { box-shadow: inset 3px 0 0 var(--mc-wait); background: color-mix(in srgb, var(--mc-wait) 8%, var(--surface-2)); }
+.sched-slot.tone-confirmed { box-shadow: inset 3px 0 0 var(--mc-ok); }
+.slot-status.tone-willinform { background: color-mix(in srgb, var(--mc-wait) 12%, transparent); color: var(--brand); }
+.sched-key.is-wait i { background: var(--mc-wait); }
+.sched-key.is-ok i { background: var(--mc-ok); }
+.sched-key.is-free i { background: var(--mc-free); box-shadow: inset 0 0 0 1px var(--mc-brand); }
+.sched-key.is-info i { background: var(--mc-brand); }
+.sched-key.is-leave i { background: var(--mc-late); }
+.sched-slot.slot-leave { box-shadow: inset 3px 0 0 var(--mc-late); }
