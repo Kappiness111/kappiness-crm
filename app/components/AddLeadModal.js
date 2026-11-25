@@ -171,8 +171,9 @@ export default function AddLeadModal({
   };
   const onBlur = (field) => () => setTouched((current) => ({ ...current, [field]: true }));
   const visibleError = (field) => (touched[field] || submitted ? errors[field] : undefined);
-  // Optional fields stay tucked away unless opened, already filled in, or holding an error to fix.
-  const moreOpen = showMore || Boolean(visibleError("email") || values.email || values.assigned_staff);
+  // Optional fields are shown or hidden only by the toggle. Values stay in state while hidden,
+  // and a failed save re-opens the section if one of its fields has an error to fix.
+  const moreOpen = showMore;
 
   function requestClose() {
     if (isSaving) return;
@@ -186,7 +187,14 @@ export default function AddLeadModal({
 
     if (errorCount > 0) {
       const first = FIELD_ORDER.find((field) => errors[field]);
-      if (first) document.getElementById(`add-${first}`)?.focus();
+      const focusFirst = () => first && document.getElementById(`add-${first}`)?.focus();
+      if (errors.email && !showMore) {
+        // The email field is unmounted while collapsed: open the section, then focus once it renders.
+        setShowMore(true);
+        requestAnimationFrame(focusFirst);
+      } else {
+        focusFirst();
+      }
       return;
     }
 
@@ -430,7 +438,7 @@ export default function AddLeadModal({
                 onClick={() => setShowMore((open) => !open)}
               >
                 <Icon name={moreOpen ? "chevronDown" : "chevronRight"} />
-                {moreOpen ? "Hide optional details" : "Add more details (email, service, assigned staff)"}
+                {moreOpen ? "Hide optional details" : "Show optional details"}
               </button>
               {moreOpen && (
                 <div id="add-more-fields" className="al-more-fields">
