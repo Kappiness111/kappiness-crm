@@ -119,6 +119,7 @@ export default function AddLeadModal({
   const [touched, setTouched] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const nameRef = useRef(null);
 
   // If the account name arrives after the form opened, fill it in (only while the field is still empty).
@@ -141,6 +142,8 @@ export default function AddLeadModal({
   };
   const onBlur = (field) => () => setTouched((current) => ({ ...current, [field]: true }));
   const visibleError = (field) => (touched[field] || submitted ? errors[field] : undefined);
+  // Optional fields stay tucked away unless opened, already filled in, or holding an error to fix.
+  const moreOpen = showMore || Boolean(visibleError("email") || values.email || values.assigned_staff);
 
   function requestClose() {
     if (isSaving) return;
@@ -197,7 +200,7 @@ export default function AddLeadModal({
       <div className="al-head">
         <div className="al-title">
           <h2 id="add-lead-title">Add Lead</h2>
-          <p>Record a new enquiry. Fields marked * are required.</p>
+          <p>Name, mobile number and where the lead came from are required (marked *). Everything else can be added now or later.</p>
         </div>
 
         <dl className="al-meta">
@@ -257,18 +260,7 @@ export default function AddLeadModal({
               />
             </Box>
 
-            <Box id="add-email" label="Email ID" error={visibleError("email")}>
-              <input
-                {...props("email")}
-                type="email"
-                autoComplete="off"
-                value={values.email}
-                onChange={onChange("email")}
-                onBlur={onBlur("email")}
-              />
-            </Box>
-
-            <Box id="add-source" label="Lead source">
+            <Box id="add-source" label="Lead source" required>
               <div className="dependent-selects">
                 <select
                   {...props("source")}
@@ -312,34 +304,11 @@ export default function AddLeadModal({
               </div>
             </Box>
 
-            <Box id="add-service_interest" label="Service of interest">
-              <select {...props("service_interest")} value={values.service_interest} onChange={onChange("service_interest")}>
-                {SERVICES.map((service) => (
-                  <option key={service}>{service}</option>
-                ))}
-              </select>
-            </Box>
           </div>
 
           <div className="al-col">
             <fieldset className="al-panel">
               <legend>Assignment and follow up</legend>
-
-              <Box id="add-assigned_staff" label="Assigned staff">
-                <input
-                  {...props("assigned_staff")}
-                  list="add-staff-options"
-                  autoComplete="off"
-                  value={values.assigned_staff}
-                  onChange={onChange("assigned_staff")}
-                  placeholder="Select or type a name"
-                />
-                <datalist id="add-staff-options">
-                  {staffOptions.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-              </Box>
 
               <Box id="add-next_follow_up_at" label="Next follow up" error={visibleError("next_follow_up_at")}>
                 <input
@@ -395,6 +364,57 @@ export default function AddLeadModal({
                 onBlur={onBlur("notes")}
               />
             </Box>
+
+            <div className="al-more">
+              <button
+                type="button"
+                className="link-btn"
+                aria-expanded={moreOpen}
+                aria-controls="add-more-fields"
+                onClick={() => setShowMore((open) => !open)}
+              >
+                <Icon name={moreOpen ? "chevronDown" : "chevronRight"} />
+                {moreOpen ? "Hide optional details" : "Add more details (email, service, assigned staff)"}
+              </button>
+              {moreOpen && (
+                <div id="add-more-fields" className="al-more-fields">
+                <Box id="add-email" label="Email ID" error={visibleError("email")}>
+                  <input
+                    {...props("email")}
+                    type="email"
+                    autoComplete="off"
+                    value={values.email}
+                    onChange={onChange("email")}
+                    onBlur={onBlur("email")}
+                  />
+                </Box>
+
+                <Box id="add-service_interest" label="Service of interest">
+                  <select {...props("service_interest")} value={values.service_interest} onChange={onChange("service_interest")}>
+                    {SERVICES.map((service) => (
+                      <option key={service}>{service}</option>
+                    ))}
+                  </select>
+                </Box>
+
+                <Box id="add-assigned_staff" label="Assigned staff">
+                  <input
+                    {...props("assigned_staff")}
+                    list="add-staff-options"
+                    autoComplete="off"
+                    value={values.assigned_staff}
+                    onChange={onChange("assigned_staff")}
+                    placeholder="Select or type a name"
+                  />
+                  <datalist id="add-staff-options">
+                    {staffOptions.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                </Box>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -410,7 +430,7 @@ export default function AddLeadModal({
           ) : isSaving ? (
             <span className="footer-meta" role="status">Saving lead...</span>
           ) : (
-            <span className="footer-meta">New leads start as {DEFAULT_STATUS}.</span>
+            <span className="footer-meta">New leads start as {DEFAULT_STATUS}. Next step: call them and update the status.</span>
           )}
           <button type="button" className="secondary-button" onClick={requestClose} disabled={isSaving}>
             Cancel

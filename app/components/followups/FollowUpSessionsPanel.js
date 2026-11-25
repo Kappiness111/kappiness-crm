@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState, ErrorState, LoadingState } from "../ui/States";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Dialog from "../Dialog";
 import Icon from "../Icon";
@@ -44,10 +45,10 @@ function ReminderCell({ reminder }) {
 /* Follow-up sessions: psychologist recommendations, their bookings and the two reminders of each booking.
    viewer: { isStaff, isAdmin, ownPsychologist }. psychologistId limits the list (psychologist workspace).
    Reminders are readable by CRM staff only, so psychologists see sessions without reminder columns. */
-export default function FollowUpSessionsPanel({ viewer, psychologistId = null, psychologistNames = {}, notify, onOpenClient, initialFocusId = null }) {
+export default function FollowUpSessionsPanel({ viewer, psychologistId = null, psychologistNames = {}, notify, onOpenClient, initialFocusId = null, initialView = null }) {
   const [data, setData] = useState({ status: "loading", message: "", recs: [], appts: [], reminders: [] });
   const [reload, setReload] = useState(0);
-  const [view, setView] = useState("action");
+  const [view, setView] = useState(() => (VIEWS.some((item) => item.id === initialView) ? initialView : "action"));
   const [search, setSearch] = useState("");
   const [psychologistFilter, setPsychologistFilter] = useState("all");
   const [selectedId, setSelectedId] = useState(initialFocusId);
@@ -114,7 +115,7 @@ export default function FollowUpSessionsPanel({ viewer, psychologistId = null, p
         <button type="button" className="kpi" onClick={() => setView("action")}>
           <span className="kpi-label">Needs attention</span>
           <span className="kpi-value">{loading ? "…" : counts.needsAction}</span>
-          <span className="kpi-meta">Reschedule requests, due reminders, late follow-ups</span>
+          <span className="kpi-meta">{showReminders ? "Reschedule requests, due reminders, late follow-ups" : "Reschedule requests and late follow-ups"}</span>
         </button>
         <button type="button" className="kpi" onClick={() => setView("action")}>
           <span className="kpi-label">Reschedule requests</span>
@@ -196,24 +197,13 @@ export default function FollowUpSessionsPanel({ viewer, psychologistId = null, p
         </div>
 
         {data.status === "error" && (
-          <div className="state" role="alert">
-            <Icon name="alert" />
-            <strong>Could not load follow-up sessions</strong>
-            <span>{data.message}</span>
-            <button type="button" className="btn btn-sm" onClick={refresh}>
-              Try again
-            </button>
-          </div>
+          <ErrorState title="Could not load follow-up sessions" message={data.message} onRetry={refresh} />
         )}
-        {loading && <p className="appt-empty">Loading follow-up sessions…</p>}
+        {loading && <LoadingState label="Loading follow-up sessions…" />}
         {data.status === "ready" && visible.length === 0 && (
-          <div className="state">
-            <Icon name="checkCircle" />
-            <strong>{rows.length === 0 ? "No follow-up sessions yet" : "Nothing in this view"}</strong>
-            <span>
-              {rows.length === 0 ? "Follow-ups are recommended after a completed session." : "Try another tab, search or filter."}
-            </span>
-          </div>
+          <EmptyState icon="checkCircle" title={rows.length === 0 ? "No follow-up sessions yet" : "Nothing in this view"}>
+            {rows.length === 0 ? "Follow-ups are recommended after a completed session." : "Try another tab, search or filter."}
+          </EmptyState>
         )}
         {data.status === "ready" && visible.length > 0 && (
           <div className="table-wrap">
@@ -233,7 +223,7 @@ export default function FollowUpSessionsPanel({ viewer, psychologistId = null, p
                 {visible.map((row) => (
                   <tr
                     key={row.id}
-                    className="clickable"
+                    className={`clickable ${row.state === "overdue" ? "is-overdue" : ""}`}
                     tabIndex={0}
                     onClick={() => setSelectedId(row.id)}
                     onKeyDown={(event) => {

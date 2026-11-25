@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react";
 import Dialog from "../components/Dialog";
 import Icon from "../components/Icon";
-import PsychologistsTabs from "../components/psychologists/PsychologistsTabs";
 import PsychologistShell from "../components/psychologists/PsychologistShell";
 import Toast from "../components/Toast";
 import useStaffContext from "../components/scheduling/useStaffContext";
@@ -37,12 +36,14 @@ function ServicesView() {
   }, [reload]);
 
   return (
-    <PsychologistShell activeId="Psychologists" crumbs={[{ label: "Psychologists", href: "/psychologists" }, { label: "Services" }]}>
-      <PsychologistsTabs active="services" />
+    <PsychologistShell activeId="Settings" crumbs={[{ label: "Settings" }]}>
       <header className="page-head">
         <div>
-          <h1>Services</h1>
-          <p>Appointment length and buffer time per service. Changes apply to new bookings only.</p>
+          <h1>Settings</h1>
+          <p>
+            Services set the appointment length and the buffer kept after each appointment; changes apply to new bookings
+            only. Your theme and display preferences are under Profile settings in the account menu (top right).
+          </p>
         </div>
         {viewer.isStaff && (
           <div className="page-actions">

@@ -5,6 +5,8 @@ import Field, { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
 import MonthGrid from "./MonthGrid";
+import SlotPicker from "./ui/SlotPicker";
+import ClientCombobox from "./ui/ClientCombobox";
 import { NOTES_LIMIT, formatDateTime } from "../lib/leads";
 import { dayHasFreeSlot, periodsFor, slotsForDay } from "../lib/appointmentSlots";
 import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
@@ -72,7 +74,6 @@ export default function BookingModal({
   });
   const [day, setDay] = useState(() => (preset && preset.day ? startOfDay(preset.day) : null));
   const [slotStart, setSlotStart] = useState(() => (preset && preset.slotStart ? new Date(preset.slotStart).toISOString() : null)); // ISO string
-  const [clientQuery, setClientQuery] = useState("");
   const [notes, setNotes] = useState(reschedule ? appointment.notes || "" : "");
   const [reason, setReason] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -227,33 +228,14 @@ export default function BookingModal({
               ) : lockedClient || reschedule || recommendation ? (
                 <input id="booking-client" value={client ? client.full_name : appointment ? appointment.client_name : ""} readOnly />
               ) : (
-                <>
-                {clients.length > 8 && (
-                  <input
-                    type="search"
-                    className="client-search"
-                    placeholder="Search clients by name or phone"
-                    aria-label="Search clients"
-                    value={clientQuery}
-                    onChange={(event) => setClientQuery(event.target.value)}
-                  />
-                )}
-                <select {...fieldProps("booking-client", visible("client"))} value={clientId} onChange={(event) => setClientId(event.target.value)}>
-                  <option value="">{clients.length ? "Select a client" : "No clients yet: confirm a lead first"}</option>
-                  {clients
-                    .filter((item) => {
-                      const term = clientQuery.trim().toLowerCase();
-                      if (!term || String(item.id) === clientId) return true;
-                      return (item.full_name || "").toLowerCase().includes(term) || (item.phone || "").replace(/s+/g, "").includes(term.replace(/s+/g, ""));
-                    })
-                    .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.full_name}
-                      {item.phone ? ` · ${item.phone}` : ""}
-                    </option>
-                  ))}
-                </select>
-                </>
+                <ClientCombobox
+                  id="booking-client"
+                  clients={clients}
+                  value={clientId}
+                  onChange={setClientId}
+                  invalid={Boolean(visible("client"))}
+                  describedBy={visible("client") ? "booking-client-error" : undefined}
+                />
               )}
             </Field>
 
@@ -327,25 +309,7 @@ export default function BookingModal({
                 </p>
               )}
 
-              <div className="slot-grid" role="radiogroup" aria-label="Time slots">
-                {slots.map((slot) => {
-                  const key = slot.start.toISOString();
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      role="radio"
-                      aria-checked={slotStart === key}
-                      className={`slot ${slotStart === key ? "active" : ""}`}
-                      disabled={!slot.free}
-                      title={slot.taken ? "Already booked" : slot.blocked ? "Blocked" : slot.past ? "In the past" : `${formatClock(slot.start)} – ${formatClock(slot.end)}`}
-                      onClick={() => setSlotStart(key)}
-                    >
-                      {formatClock(slot.start)}
-                    </button>
-                  );
-                })}
-              </div>
+              <SlotPicker slots={slots} value={slotStart} onChange={setSlotStart} />
 
               {visible("slot") && (
                 <p className="field-error" role="alert">

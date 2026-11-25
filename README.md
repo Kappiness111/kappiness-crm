@@ -156,9 +156,27 @@ The application is deployed through Vercel.
 
 Deployment environment variables must be configured in the Vercel project settings.
 
-## Repository
+## Deploy on Vercel (Kappiness CRM)
 
-GitHub: https://github.com/Kappiness111/kappiness-crm
+The deployed app talks to Supabase directly from the browser and from Vercel. It never calls a local server.
 
-**Project:** Kappiness CRM  
-**Organization:** Kappiness Mental Health and Therapeutic Centre
+**Environment variables** (Vercel → Project → Settings → Environment Variables; set for Production and Preview,
+and in `.env.local` for local development; see `.env.example`):
+
+| Name | Value |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API Keys / Data API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → API Keys → Publishable key (`sb_publishable_…`) |
+
+Never add the secret / service_role key: `NEXT_PUBLIC_*` values are sent to the browser. After changing a variable,
+redeploy (the values are built into the app).
+
+**Supabase sign-in return addresses** (Supabase → Authentication → URL Configuration). Google sign-in returns to
+`<site>/auth/callback`; Supabase only allows addresses on this list and otherwise falls back to the Site URL:
+
+- Site URL: `https://kappiness-crm-rust.vercel.app`
+- Redirect URLs: `https://kappiness-crm-rust.vercel.app/**`, `http://localhost:3000/**`, and your Vercel preview
+  pattern (for example `https://kappiness-crm-*.vercel.app/**`).
+
+If the Site URL is `http://localhost:3000` and the live address is missing from the list, signing in on the live site
+sends people to localhost, which only works while a local dev server is running.

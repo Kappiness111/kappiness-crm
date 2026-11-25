@@ -224,6 +224,9 @@ export default function AppShell({
 
   useEffect(() => {
     if (!drawerOpen) return undefined;
+    // Move focus into the drawer (the current page, else the first item) so keyboard and screen-reader users land in it.
+    const drawer = document.getElementById("app-sidebar");
+    (drawer?.querySelector('.sb-item[aria-current="page"]') || drawer?.querySelector(".sb-item"))?.focus();
     function onKey(event) {
       if (event.key === "Escape") {
         setDrawerOpen(false);
@@ -275,13 +278,13 @@ export default function AppShell({
 
   return (
     <div className="app" data-drawer={mobileOpen ? "open" : "closed"}>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <aside className="sidebar" id="app-sidebar" aria-label="Main navigation">
         <div className="sb-brand">
-          <Image src="/kappiness_logo_sq.jpeg" alt="" width={34} height={34} className="sb-logo" priority />
-          <span className="sb-wordmark">
-            <strong>Kappiness</strong>
-            <span>{workspaceLabel}</span>
-          </span>
+          <Image src="/kappiness_logo_wide.png" alt="Kappiness" width={118} height={54} className="sb-logo-wide" priority />
+          <Image src="/kappiness_mark.png" alt="Kappiness" width={38} height={38} className="sb-logo" priority />
         </div>
 
         <nav className="sb-nav" onMouseLeave={() => setTip(null)}>
@@ -294,7 +297,7 @@ export default function AppShell({
                   type="button"
                   className="sb-item"
                   aria-current={item.id === activeId ? "page" : undefined}
-                  aria-label={item.count ? `${item.label}, ${item.count}` : item.label}
+                  aria-label={item.count ? `${item.label}, ${item.count}${item.countLabel ? ` ${item.countLabel}` : ""}` : item.label}
                   onClick={() => go(item)}
                   onMouseEnter={(event) => showTip(event, item.label)}
                   onFocus={(event) => showTip(event, item.label)}
@@ -302,7 +305,11 @@ export default function AppShell({
                 >
                   <Icon name={item.icon} />
                   <span className="sb-label">{item.label}</span>
-                  {item.count ? <span className="sb-count" aria-hidden="true">{item.count}</span> : null}
+                  {item.count ? (
+                    <span className={`sb-count ${item.countTone === "overdue" ? "is-overdue" : ""}`} aria-hidden="true">
+                      {item.count}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -324,7 +331,7 @@ export default function AppShell({
         onClick={() => setDrawerOpen(false)}
       />
 
-      <div className="app-main">
+      <div className="app-main" inert={mobileOpen || undefined}>
         <header className="app-header">
           <button
             ref={menuButtonRef}
@@ -366,7 +373,7 @@ export default function AppShell({
           </div>
         </header>
 
-        <main className="app-content" id="main-content">
+        <main className="app-content" id="main-content" tabIndex={-1}>
           {children}
         </main>
       </div>
