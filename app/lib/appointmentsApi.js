@@ -131,6 +131,33 @@ export async function convertLeadToAppointment(values) {
   return { lead: data.lead, clientId: data.client_id, sessionId: data.session_id, appointment };
 }
 
+// Day 24: converts an enquiry from an EXISTING client in ONE transaction (convert_lead_to_existing_client, migration
+// 20261125120000): links the lead to the client (if not linked yet), confirms the lead with history and books the
+// appointment for that client. No second client is created; the client's referral source is not changed.
+// values: { leadId, expectedStatus, clientId, psychologistId, serviceId, startsAt, notes?, linkNote? }
+export async function convertLeadToExistingClient(values) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("convert_lead_to_existing_client", {
+    p_lead_id: values.leadId,
+    p_expected_status: values.expectedStatus,
+    p_client_id: values.clientId,
+    p_psychologist_id: values.psychologistId,
+    p_service_id: values.serviceId,
+    p_starts_at: new Date(values.startsAt).toISOString(),
+    p_notes: values.notes || null,
+    p_link_note: values.linkNote || null,
+  });
+  if (error) throw error;
+  if (!data || !data.ok || !data.lead || !data.appointment_id) throw new Error("The database returned an empty response.");
+  let appointment = null;
+  try {
+    appointment = await getAppointment(data.appointment_id);
+  } catch (readError) {
+    console.error("Converted, but the new appointment could not be re-read:", readError);
+  }
+  return { lead: data.lead, clientId: data.client_id, sessionId: data.session_id, appointment };
+}
+
 export function confirmAppointment(id) {
   return rpc("confirm_appointment", { p_appointment_id: id });
 }

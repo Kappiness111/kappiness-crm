@@ -10,6 +10,7 @@ import ClientCombobox from "./ui/ClientCombobox";
 import { NOTES_LIMIT, formatDateTime } from "../lib/leads";
 import { dayHasFreeSlot, periodsFor, slotsForDay } from "../lib/appointmentSlots";
 import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
+import { clientIdLabel } from "../lib/clientsApi";
 
 /* Book a new appointment or reschedule an existing one.
    - Booking needs an existing client, a psychologist, a service and a free slot.
@@ -18,12 +19,17 @@ import { formatClock, isoWeekday, startOfDay } from "../lib/calendar";
    - Rescheduling keeps the original record (it becomes Rescheduled) and books a new Scheduled appointment.
    - Converting a lead (Day 23) uses the same picker: on save, one database transaction confirms the lead, creates or
      links its client profile and books this first appointment and its session. Nothing is saved if any part fails.
+   - Day 24: an enquiry linked to an existing client (linkedClient) is booked for that client. Otherwise, when other
+     clients share the enquiry's phone number (phoneMatches; shared numbers are allowed), staff must choose
+     explicitly: book for one of those clients (the enquiry is linked to it), or create a separate client profile.
    The database checks every rule again when saving. */
 export default function BookingModal({
   mode = "book", // "book" | "reschedule" | "convert"
   clients = [], // clients this user may book for
   lockedClient = null, // booking for a known client: the client is fixed
   lead = null, // mode "convert": the lead being converted (not a client yet)
+  linkedClient = null, // mode "convert": the existing client this enquiry is already linked to (Day 24)
+  phoneMatches = [], // mode "convert": every client with the same phone number (Day 24), none pre-selected
   appointment = null, // the appointment being rescheduled
   recommendation = null, // booking from a follow-up recommendation
   preset = null, // { psychologistId, serviceId, day, slotStart } when opened from a schedule slot
@@ -53,7 +59,11 @@ export default function BookingModal({
     if (reschedule && canUse(appointment.psychologist_id)) return String(appointment.psychologist_id);
     if (recommendation && canUse(recommendation.psychologist_id)) return String(recommendation.psychologist_id);
     if (preset && canUse(preset.psychologistId)) return String(preset.psychologistId);
-    const primary = lockedClient ? lockedClient.primary_psychologist_id : convert ? lead.assigned_psychologist_id : null;
+    const primary = lockedClient
+      ? lockedClient.primary_psychologist_id
+      : convert
+        ? (linkedClient && linkedClient.primary_psychologist_id) || lead.assigned_psychologist_id
+        : null;
     if (canUse(primary)) return String(primary);
     return psychologists.length === 1 ? String(psychologists[0].id) : "";
   });
@@ -76,6 +86,8 @@ export default function BookingModal({
   const [slotStart, setSlotStart] = useState(() => (preset && preset.slotStart ? new Date(preset.slotStart).toISOString() : null)); // ISO string
   const [notes, setNotes] = useState(reschedule ? appointment.notes || "" : "");
   const [reason, setReason] = useState("");
+  // Day 24: "" = not chosen yet, a client id = book for that existing client, "new" = separate client profile.
+  const [clientChoice, setClientChoice] = useState(() => (linkedClient ? String(linkedClient.id) : phoneMatches.length ? "" : "new"));
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -103,6 +115,7 @@ export default function BookingModal({
 
   const errors = {};
   if (!clientId && !convert) errors.client = "Choose a client.";
+  if (convert && !clientChoice) errors.clientChoice = "Choose the existing client this enquiry is for, or create a separate client profile.";
   if (!psychologistId) errors.psychologist = "Choose a psychologist.";
   if (!reschedule && !serviceId) errors.service = "Choose a service.";
   if (!slotStart) errors.slot = "Pick a date and a time slot.";
@@ -152,6 +165,7 @@ export default function BookingModal({
       client_id: convert ? null : clientId,
       lead_id: convert ? lead.id : client ? client.lead_id : null,
       expected_status: convert ? lead.status : null,
+      existing_client_id: convert && clientChoice && clientChoice !== "new" ? clientChoice : null,
       psychologist_id: psychologistId,
       service_id: serviceId || null,
       starts_at: chosen.start.toISOString(),
@@ -172,6 +186,10 @@ export default function BookingModal({
   const chosenSlot = slotStart ? slots.find((slot) => slot.start.toISOString() === slotStart) : null;
   const psychologistName = (psychologists.find((item) => String(item.id) === psychologistId) || {}).name || "";
   const clientName = convert ? lead.full_name : client ? client.full_name : appointment ? appointment.client_name : "";
+  const existingClient = convert
+    ? linkedClient || phoneMatches.find((item) => String(item.id) === clientChoice) || null
+    : null;
+  const existingInactive = Boolean(existingClient && existingClient.is_active === false);
   const when = (start, end) =>
     `${start.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}, ${formatClock(start)} – ${formatClock(end)}`;
 
@@ -185,7 +203,9 @@ export default function BookingModal({
   const subtitle = reschedule
     ? "The original appointment is kept as Rescheduled and a new one is booked."
     : convert
-      ? "Confirms this lead, creates its client profile and books the first session in one step. If any part fails, nothing is saved."
+      ? existingClient
+        ? "Confirms this enquiry, links it to the existing client and books the session for them in one step. If any part fails, nothing is saved."
+        : "Confirms this lead, creates its client profile and books the first session in one step. If any part fails, nothing is saved."
       : "Choose a client, a psychologist, a service and a free time. New bookings wait for the client's confirmation.";
 
   return (
@@ -207,6 +227,63 @@ export default function BookingModal({
               Currently booked for <strong>{formatDateTime(appointment.starts_at)}</strong>
               {appointment.service_type ? ` (${appointment.service_type}, ${durationMinutes} min)` : ""}. Pick a new date and slot.
             </p>
+          )}
+          {convert && linkedClient && (
+            <div className={`notice ${existingInactive ? "warn" : ""}`} role="status">
+              <Icon name="info" />
+              <div className="match-card">
+                <strong>
+                  Linked to existing client: {linkedClient.full_name} ({clientIdLabel(linkedClient.id)})
+                </strong>
+                <span>
+                  {existingInactive
+                    ? "This client is inactive. Reactivate the client profile before booking."
+                    : "The appointment is booked for this client. No new client profile is created, the client's referral source stays as it is, and the enquiry keeps its own source and history. To book a separate profile instead, unlink the enquiry in the lead drawer first."}
+                </span>
+              </div>
+            </div>
+          )}
+          {convert && !linkedClient && phoneMatches.length > 0 && (
+            <fieldset className={`notice warn`} style={{ display: "block" }} aria-describedby={visible("clientChoice") ? "booking-choice-error" : undefined}>
+              <legend className="field-label" style={{ padding: 0 }}>
+                {phoneMatches.length === 1 ? "1 existing client has" : `${phoneMatches.length} existing clients have`} this phone number. Who is this
+                enquiry for? <span className="required">*</span>
+              </legend>
+              <div className="match-card" role="radiogroup">
+                {phoneMatches.map((item) => (
+                  <label key={item.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <input
+                      type="radio"
+                      name="booking-client-choice"
+                      value={item.id}
+                      checked={clientChoice === String(item.id)}
+                      disabled={item.is_active === false}
+                      onChange={() => setClientChoice(String(item.id))}
+                    />
+                    <span>
+                      <strong>{item.full_name}</strong> <span className="client-id">{clientIdLabel(item.id)}</span>
+                      <small className="muted block">
+                        {item.is_active === false ? "Inactive: reactivate the profile to book for them" : "Active"}
+                        {item.referral_source ? ` · Referral source: ${item.referral_source}` : ""}
+                        {" · "}book for this existing client and link the enquiry to them
+                      </small>
+                    </span>
+                  </label>
+                ))}
+                <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <input type="radio" name="booking-client-choice" value="new" checked={clientChoice === "new"} onChange={() => setClientChoice("new")} />
+                  <span>
+                    <strong>Someone else: create a separate client profile</strong>
+                    <small className="muted block">For example a family member who shares this phone number.</small>
+                  </span>
+                </label>
+              </div>
+              {visible("clientChoice") && (
+                <p className="field-error" id="booking-choice-error" role="alert">
+                  {visible("clientChoice")}
+                </p>
+              )}
+            </fieldset>
           )}
           {recommendation && (
             <div className="notice" role="status">
@@ -354,7 +431,15 @@ export default function BookingModal({
                       {lead.status} → <strong>Confirmed</strong>
                     </dd>
                     <dt>Client profile</dt>
-                    <dd>Created from the lead&apos;s details (the lead and its history are kept)</dd>
+                    <dd>
+                      {existingClient ? (
+                        <>
+                          Existing client <strong>{existingClient.full_name}</strong> ({clientIdLabel(existingClient.id)}); this enquiry is linked to it
+                        </>
+                      ) : (
+                        "Created from the lead's details (the lead and its history are kept)"
+                      )}
+                    </dd>
                     {lead.next_follow_up_at ? (
                       <>
                         <dt>Follow-up call</dt>
@@ -415,7 +500,7 @@ export default function BookingModal({
           <button type="button" className="secondary-button" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button type="submit" className="primary-button" disabled={saving}>
+          <button type="submit" className="primary-button" disabled={saving || existingInactive}>
             {saving ? "Saving…" : reschedule ? "Reschedule" : convert ? "Confirm and book" : "Book appointment"}
           </button>
         </div>

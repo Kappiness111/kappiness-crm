@@ -44,6 +44,8 @@ import {
   whatsappLink,
 } from "../lib/leads";
 import { AppointmentActionSelect, StatusPill } from "./AppointmentTable";
+import CommunicationPanel from "./communication/CommunicationPanel";
+import { clientIdLabel } from "../lib/clientsApi";
 
 const ACTIVITY_ICONS = {
   created: "plus",
@@ -376,6 +378,14 @@ export default function LeadDetailsModal({
   onRequestBooking,
   onRequestConversion,
   onAppointmentAction,
+  // Day 24: existing-client matching and linking (staff). ownClient = the client this lead created; linkedClient = the
+  // existing client this enquiry is linked to.
+  ownClient = null,
+  linkedClient = null,
+  onFindPhoneMatches,
+  onLinkClient,
+  onUnlinkClient,
+  onOpenClient,
 }) {
   const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(() => makeDraft(lead));
@@ -414,10 +424,57 @@ export default function LeadDetailsModal({
   const assignSavingRef = useRef(false);
   const leadPsychologist = lead.assigned_psychologist_id ? String(lead.assigned_psychologist_id) : "";
   const [seenPsychologist, setSeenPsychologist] = useState(leadPsychologist);
+  // Day 24: clients / other enquiries with the same phone number.
+  const [phoneMatches, setPhoneMatches] = useState({ state: "idle", clients: [], leads: [] });
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const [unlinkReason, setUnlinkReason] = useState(null); // null | string while the unlink form is open
   if (seenPsychologist !== leadPsychologist) {
     // The saved assignment changed (Edit tab or another save), so the picker follows it.
     setSeenPsychologist(leadPsychologist);
     setAssignDraft(leadPsychologist);
+  }
+
+  // Day 24: look up an existing client with the same phone number (the database normalises the number).
+  const linkedClientId = linkedClient ? linkedClient.id : null;
+  useEffect(() => {
+    if (typeof onFindPhoneMatches !== "function" || !canUpdateStatus || ownClient) return undefined;
+    let cancelled = false;
+    onFindPhoneMatches(lead.phone, lead.id)
+      .then((result) => {
+        if (!cancelled) setPhoneMatches({ state: "ready", clients: result.clients || [], leads: result.leads || [] });
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneMatches({ state: "error", clients: [], leads: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id, lead.phone, linkedClientId, canUpdateStatus, Boolean(ownClient)]);
+
+  async function linkTo(clientId) {
+    if (linkBusy || !onLinkClient) return;
+    setLinkBusy(true);
+    setLinkError("");
+    const result = await onLinkClient(lead, clientId);
+    setLinkBusy(false);
+    if (!result || !result.ok) setLinkError((result && result.message) || "Could not link this enquiry.");
+  }
+
+  async function unlink(event) {
+    event.preventDefault();
+    if (linkBusy || !onUnlinkClient) return;
+    if ((unlinkReason || "").trim().length < 3) {
+      setLinkError("Add a reason for removing the link.");
+      return;
+    }
+    setLinkBusy(true);
+    setLinkError("");
+    const result = await onUnlinkClient(lead, unlinkReason.trim());
+    setLinkBusy(false);
+    if (!result || !result.ok) setLinkError((result && result.message) || "Could not remove the link.");
+    else setUnlinkReason(null);
   }
 
   // Loads the saved activity history for this lead:
@@ -735,6 +792,7 @@ export default function LeadDetailsModal({
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "activity", label: "Activity", count: activity.length },
+    { id: "communication", label: "Communication" },
     { id: "edit", label: "Edit" },
   ];
 
@@ -992,6 +1050,27 @@ export default function LeadDetailsModal({
                 </div>
               </section>
 
+              <ExistingClientCard
+                lead={lead}
+                ownClient={ownClient}
+                linkedClient={linkedClient}
+                matches={phoneMatches}
+                canLink={canUpdateStatus && Boolean(onLinkClient)}
+                busy={linkBusy}
+                error={linkError}
+                unlinkReason={unlinkReason}
+                psychologistNames={psychologistNames}
+                onLink={(clientId) => void linkTo(clientId)}
+                onStartUnlink={() => {
+                  setLinkError("");
+                  setUnlinkReason("");
+                }}
+                onUnlinkReason={setUnlinkReason}
+                onCancelUnlink={() => setUnlinkReason(null)}
+                onUnlink={unlink}
+                onOpenClient={onOpenClient}
+              />
+
               <section className="info-section">
                 <h4>Appointments</h4>
 
@@ -999,7 +1078,9 @@ export default function LeadDetailsModal({
                   <p className="subtle-text">
                     This lead is {lead.status}, so it has no client profile or appointments yet.
                     {canConvertLead(lead.status)
-                      ? " Confirm and book to confirm the lead, create its client profile and book the first session in one step."
+                      ? linkedClient
+                        ? ` Confirm and book to confirm this enquiry and book the session for the existing client ${linkedClient.full_name}, in one step.`
+                        : " Confirm and book to confirm the lead, create its client profile and book the first session in one step."
                       : isReasonRequired(lead.status)
                         ? ""
                         : ` ${confirmPathHint(lead.status)}`}
@@ -1255,6 +1336,18 @@ export default function LeadDetailsModal({
         </div>
       )}
 
+      {tab === "communication" && (
+        <div className="modal-body" role="tabpanel" id="panel-communication" aria-labelledby="tab-communication">
+          <CommunicationPanel
+            subject={{ leadId: lead.id }}
+            name={lead.full_name}
+            phone={lead.phone}
+            canRecord={canUpdateStatus}
+            leadLabels={{ [lead.id]: lead.lead_code }}
+          />
+        </div>
+      )}
+
       {tab === "edit" && (
         <form className="lead-form" noValidate onSubmit={handleSave}>
           <div className="modal-body" role="tabpanel" id="panel-edit" aria-labelledby="tab-edit">
@@ -1435,5 +1528,145 @@ export default function LeadDetailsModal({
         </form>
       )}
     </ModalShell>
+  );
+}
+
+/* Day 24: which client this enquiry belongs to. A lead either created its own client (on Confirmed), is linked to an
+   EXISTING client (a returning client's new enquiry), or matches an existing client by phone number and can be linked
+   to it here. Linking keeps the enquiry and its history; the database refuses a second client for the same number. */
+function ExistingClientCard({
+  lead,
+  ownClient,
+  linkedClient,
+  matches,
+  canLink,
+  busy,
+  error,
+  unlinkReason,
+  psychologistNames,
+  onLink,
+  onStartUnlink,
+  onUnlinkReason,
+  onCancelUnlink,
+  onUnlink,
+  onOpenClient,
+}) {
+  const otherLeads = (matches.leads || []).filter((item) => item.id !== lead.id);
+  const matchClients = (matches.clients || []).filter((item) => !linkedClient || item.id !== linkedClient.id);
+  if (!ownClient && !linkedClient && matchClients.length === 0 && otherLeads.length === 0) return null;
+  const confirmed = lead.status === CONFIRMED_STATUS;
+
+  const clientLine = (client) => (
+    <>
+      <strong>{client.full_name}</strong> <span className="client-id">{clientIdLabel(client.id)}</span>
+      <small className="muted block">
+        {client.phone || ""}
+        {client.is_active === false ? " · Inactive" : " · Active"}
+        {client.primary_psychologist_id && psychologistNames[client.primary_psychologist_id] ? ` · ${psychologistNames[client.primary_psychologist_id]}` : ""}
+        {client.referral_source ? ` · Referral: ${client.referral_source}` : ""}
+      </small>
+    </>
+  );
+
+  return (
+    <section className="info-section">
+      <h4>Client profile</h4>
+      {ownClient && (
+        <div className="match-card">
+          <span>This enquiry created the client profile {clientLine(ownClient)}</span>
+          {onOpenClient && (
+            <div className="followup-actions">
+              <button type="button" className="mini-button" onClick={() => onOpenClient(ownClient.id)}>
+                Open client profile
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!ownClient && linkedClient && (
+        <div className="match-card">
+          <span>Linked to existing client {clientLine(linkedClient)}</span>
+          <div className="followup-actions">
+            {onOpenClient && (
+              <button type="button" className="mini-button" onClick={() => onOpenClient(linkedClient.id)}>
+                Open client profile
+              </button>
+            )}
+            {canLink && !confirmed && unlinkReason === null && (
+              <button type="button" className="mini-button" onClick={onStartUnlink} disabled={busy}>
+                Unlink
+              </button>
+            )}
+          </div>
+          {unlinkReason !== null && (
+            <form className="lost-prompt" onSubmit={onUnlink} noValidate>
+              <Field id="unlink-reason" label="Why remove the link?" required>
+                <input id="unlink-reason" value={unlinkReason} maxLength={500} onChange={(event) => onUnlinkReason(event.target.value)} />
+              </Field>
+              <div className="followup-actions">
+                <button type="submit" className="mini-button primary" disabled={busy}>
+                  {busy ? "Saving…" : "Remove link"}
+                </button>
+                <button type="button" className="mini-button" onClick={onCancelUnlink} disabled={busy}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {!ownClient && !linkedClient && matchClients.length > 0 && (
+        <div className="notice warn" role="status">
+          <Icon name="info" />
+          <div className="match-card">
+            <strong>
+              {matchClients.length === 1 ? "1 existing client has" : `${matchClients.length} existing clients have`} this phone number
+            </strong>
+            {matchClients.map((client) => (
+              <div key={client.id}>
+                {clientLine(client)}
+                <div className="followup-actions">
+                  {canLink && !confirmed && (
+                    <button type="button" className="mini-button primary" disabled={busy} onClick={() => onLink(client.id)}>
+                      {busy ? "Linking…" : "Link this enquiry to this client"}
+                    </button>
+                  )}
+                  {onOpenClient && (
+                    <button type="button" className="mini-button" onClick={() => onOpenClient(client.id)}>
+                      Open client profile
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            <span className="muted">
+              {confirmed
+                ? "This lead is already Confirmed, so it can no longer be linked."
+                : "Link only if this enquiry is from that person. A family member sharing the number can get their own client profile: leave it unlinked and choose \u201cseparate client profile\u201d when confirming. Nothing is linked automatically."}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {otherLeads.length > 0 && (
+        <p className="subtle-text">
+          Other enquiries with this phone number:{" "}
+          {otherLeads.map((item, index) => (
+            <span key={item.id}>
+              {index ? ", " : ""}
+              {item.lead_code || "lead"} ({item.status}, {formatDate(item.created_at)})
+            </span>
+          ))}
+        </p>
+      )}
+
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

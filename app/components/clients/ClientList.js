@@ -7,7 +7,8 @@ import { FollowUpStateBadge } from "../ui/StatusBadges";
 import { listRecommendations, listSessions, recommendationState } from "../../lib/sessionsApi";
 import { appointmentStatusLabel, sessionStatusLabel } from "../../lib/statusLabels";
 import { ACTIVE_APPOINTMENT_STATUSES, describeAppointmentError, listAppointments } from "../../lib/appointmentsApi";
-import { listClients } from "../../lib/clientsApi";
+import { clientIdLabel, listClients, matchesClientId } from "../../lib/clientsApi";
+import { normalizePhone } from "../../lib/phone";
 import { formatDate, formatTime } from "../../lib/leads";
 
 // Next follow-up for a client: recommended (with its date) or already booked.
@@ -22,9 +23,35 @@ function FollowUpCell({ followUp }) {
   );
 }
 
+const STATUS_FILTERS = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+];
+
+// Search: name, email, city, service, referral source, phone (any formatting: spaces, +91, brackets) or Client ID
+// (CL-XXXXXXXX, or the start / whole of the uuid).
+export function clientMatches(client, rawTerm) {
+  const term = rawTerm.trim().toLowerCase();
+  if (!term) return true;
+  if ([client.full_name, client.email, client.city, client.service_interest, client.referral_source].some((field) => (field || "").toLowerCase().includes(term))) {
+    return true;
+  }
+  if (matchesClientId(client, term)) return true;
+  const digits = term.replace(/\D/g, "");
+  if (digits.length >= 3) {
+    const phoneDigits = (client.phone || "").replace(/\D/g, "");
+    const normalized = (client.phone_normalized || normalizePhone(client.phone) || "").replace(/\D/g, "");
+    const wanted = (normalizePhone(term) || "").replace(/\D/g, "");
+    if (phoneDigits.includes(digits) || normalized.includes(digits) || (wanted && normalized === wanted)) return true;
+  }
+  return false;
+}
+
 /* Client list for staff (all clients) and psychologists (own clients: psychologistId set, RLS enforces it).
    psychologistView shows what a psychologist needs at a glance: last session, next appointment and follow-up.
-   onOpen(client) opens the client profile. */
+   Day 24: Client ID, email, referral source and Active/Inactive status; search by name, phone or Client ID; filter
+   by status. onOpen(client) opens the client profile. */
 export default function ClientList({ psychologistId = null, psychologistNames = {}, showPsychologist = true, psychologistView = false, onOpen }) {
   const [state, setState] = useState({ status: "loading", message: "" });
   const [clients, setClients] = useState([]);
@@ -33,6 +60,7 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
   const [followUpByClient, setFollowUpByClient] = useState({});
   const [search, setSearch] = useState("");
   const [psychologistFilter, setPsychologistFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
@@ -76,18 +104,20 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
     };
   }, [psychologistId, psychologistView, reload]);
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const digits = term.replace(/\s+/g, "");
-    return clients.filter((client) => {
-      if (psychologistFilter !== "all" && String(client.primary_psychologist_id) !== psychologistFilter) return false;
-      if (!term) return true;
-      return (
-        [client.full_name, client.email, client.city, client.service_interest].some((field) => (field || "").toLowerCase().includes(term)) ||
-        (digits && client.phone.replace(/\s+/g, "").includes(digits))
-      );
-    });
-  }, [clients, search, psychologistFilter]);
+  const rows = useMemo(
+    () =>
+      clients.filter((client) => {
+        if (psychologistFilter !== "all" && String(client.primary_psychologist_id) !== psychologistFilter) return false;
+        if (statusFilter === "active" && !client.is_active) return false;
+        if (statusFilter === "inactive" && client.is_active) return false;
+        return clientMatches(client, search);
+      }),
+    [clients, search, psychologistFilter, statusFilter]
+  );
+  const statusCounts = useMemo(
+    () => ({ all: clients.length, active: clients.filter((item) => item.is_active).length, inactive: clients.filter((item) => !item.is_active).length }),
+    [clients]
+  );
 
   if (state.status === "loading") {
     return (
@@ -121,8 +151,15 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
         <label className="search">
           <Icon name="search" />
           <span className="sr-only">Search clients</span>
-          <input type="search" placeholder="Search name, phone, email, city" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <input type="search" placeholder="Search name, phone or Client ID" value={search} onChange={(event) => setSearch(event.target.value)} />
         </label>
+        <div className="seg" role="group" aria-label="Filter by client status">
+          {STATUS_FILTERS.map((item) => (
+            <button key={item.id} type="button" aria-pressed={statusFilter === item.id} onClick={() => setStatusFilter(item.id)}>
+              {item.label} <span className="muted num">{statusCounts[item.id]}</span>
+            </button>
+          ))}
+        </div>
         {showPsychologist && psychologistIds.length > 1 && (
           <select value={psychologistFilter} onChange={(event) => setPsychologistFilter(event.target.value)} aria-label="Filter by psychologist">
             <option value="all">All psychologists</option>
@@ -145,7 +182,9 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
                 ? psychologistView
                   ? "Clients appear here once the clinic team assigns them to you."
                   : "A client profile is created when a lead is set to Confirmed with a psychologist."
-                : "Try another search or filter."}
+                : search.trim()
+                  ? "No client matches that name, phone number or Client ID. Try another search or filter."
+                  : "Try another filter."}
             </span>
           </div>
         ) : psychologistView ? (
@@ -216,10 +255,13 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
             <table className="table">
               <thead>
                 <tr>
+                  <th scope="col">Client ID</th>
                   <th scope="col">Client</th>
-                  <th scope="col">Contact</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col">Email</th>
                   {showPsychologist && <th scope="col">Psychologist</th>}
-                  <th scope="col">Service</th>
+                  <th scope="col">Referral source</th>
+                  <th scope="col">Status</th>
                   <th scope="col">Next appointment</th>
                   <th scope="col">Follow-up</th>
                 </tr>
@@ -230,20 +272,32 @@ export default function ClientList({ psychologistId = null, psychologistNames = 
                   return (
                     <tr key={client.id} className="clickable" tabIndex={0} onClick={() => onOpen(client)} onKeyDown={(event) => event.key === "Enter" && onOpen(client)}>
                       <td>
+                        <span className="client-id" title={client.id}>
+                          {clientIdLabel(client.id)}
+                        </span>
+                      </td>
+                      <td>
                         <span className="person">
                           <Avatar name={client.full_name} />
                           <span>
                             <strong>{client.full_name}</strong>
-                            <small className="muted">{client.city || (client.is_active ? "Active" : "Inactive")}</small>
+                            <small className="muted">{client.service_interest || client.city || ""}</small>
                           </span>
                         </span>
                       </td>
                       <td>
                         {client.phone || "—"}
-                        {client.preferred_contact ? <small className="muted"> · {client.preferred_contact}</small> : null}
+                        {client.preferred_contact ? <small className="muted block">{client.preferred_contact}</small> : null}
                       </td>
-                      {showPsychologist && <td>{psychologistNames[client.primary_psychologist_id] || "—"}</td>}
-                      <td>{client.service_interest || <span className="muted">—</span>}</td>
+                      <td className="wrap">{client.email || <span className="muted">—</span>}</td>
+                      {showPsychologist && <td>{psychologistNames[client.primary_psychologist_id] || client.psychologist_name || "—"}</td>}
+                      <td>{client.referral_source || <span className="muted">—</span>}</td>
+                      <td>
+                        <span className={`badge ${client.is_active ? "tone-success" : ""}`}>
+                          <span className="badge-dot" />
+                          {client.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </td>
                       <td>
                         {next ? (
                           `${formatDate(next.starts_at)}, ${formatTime(next.starts_at)}`
