@@ -23,6 +23,7 @@ import {
   cancelAppointment,
   confirmAppointment,
   convertLeadToAppointment,
+  convertLeadToExistingClient,
   describeAppointmentError,
   getAppointment,
   isMissingBackend,
@@ -30,7 +31,7 @@ import {
   recordAttendance,
   rescheduleAppointment,
 } from "./lib/appointmentsApi";
-import { listClients } from "./lib/clientsApi";
+import { clientIdLabel, findPhoneMatches, linkLeadToClient, listClients, listLeadClientLinks, unlinkLeadFromClient } from "./lib/clientsApi";
 import { listBlocks, listServices } from "./lib/schedulingApi";
 import ReasonDialog from "./components/ReasonDialog";
 import { useRouter } from "next/navigation";
@@ -214,6 +215,9 @@ export default function DashboardPage() {
   // Scheduling data from Supabase: loading | ready | missing (migration not applied) | error
   const [schedulingState, setSchedulingState] = useState("loading");
   const [clients, setClients] = useState([]);
+  // Day 24: enquiries linked to an existing client (public.lead_client_links).
+  const [leadClientLinks, setLeadClientLinks] = useState([]);
+  const [linksReload, setLinksReload] = useState(0);
   const [services, setServices] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -478,8 +482,16 @@ export default function DashboardPage() {
     appointments.forEach((item) => {
       (map[item.lead_id] = map[item.lead_id] || []).push(item);
     });
+    // Day 24: a Confirmed enquiry linked to an existing client shows that client's appointments. (A linked enquiry
+    // that is not Confirmed yet has no appointments of its own.)
+    const confirmedIds = new Set(leads.filter((lead) => lead.status === CONFIRMED_STATUS).map((lead) => lead.id));
+    leadClientLinks.forEach((link) => {
+      if (!confirmedIds.has(link.lead_id)) return;
+      const own = appointments.filter((item) => item.client_id === link.client_id);
+      if (own.length) map[link.lead_id] = own;
+    });
     return map;
-  }, [appointments]);
+  }, [appointments, leadClientLinks, leads]);
   // Confirmed appointments (booked rows) and unconfirmed leads (no booking possible yet) are kept apart.
   const upcomingAppointments = appointments.filter((item) => ACTIVE_APPOINTMENT_STATUSES.includes(item.status));
   const pastAppointments = appointments
@@ -509,7 +521,23 @@ export default function DashboardPage() {
   }, [isPsychologistUser, psychologists, ownPsychologist]);
   const canScheduleAppointments = schedulablePsychologists.length > 0;
 
-  const clientsByLead = useMemo(() => new Map(clients.map((item) => [item.lead_id, item])), [clients]);
+  // A lead's client: the one it created (clients.lead_id) or, for an enquiry from an existing client, the linked one.
+  const clientsById = useMemo(() => new Map(clients.map((item) => [item.id, item])), [clients]);
+  const linkedClientByLead = useMemo(() => {
+    const map = new Map();
+    leadClientLinks.forEach((link) => {
+      const client = clientsById.get(link.client_id);
+      if (client) map.set(link.lead_id, client);
+    });
+    return map;
+  }, [leadClientLinks, clientsById]);
+  const clientsByLead = useMemo(() => {
+    const map = new Map(clients.map((item) => [item.lead_id, item]));
+    linkedClientByLead.forEach((client, leadId) => {
+      if (!map.has(leadId)) map.set(leadId, client);
+    });
+    return map;
+  }, [clients, linkedClientByLead]);
 
   // Calendar availability dots use the shortest active service, so a day shows as free if anything fits.
   const slotDefaults = useMemo(() => {
@@ -567,6 +595,48 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [confirmedLeadCount]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listLeadClientLinks()
+      .then((rows) => {
+        if (!cancelled) setLeadClientLinks(rows);
+      })
+      .catch((error) => {
+        if (!isMissingBackend(error)) console.error("Failed to load enquiry links:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [confirmedLeadCount, linksReload]);
+
+  // Day 24: link an enquiry to an existing client (staff, before the lead is Confirmed). Resolves to { ok, message }.
+  async function handleLinkClient(lead, clientId, note = "") {
+    if (!canEditStatuses) return { ok: false, message: "You do not have permission to link enquiries." };
+    try {
+      await linkLeadToClient(lead.id, clientId, note);
+      setLinksReload((value) => value + 1);
+      setActivityRevisions((current) => ({ ...current, [lead.id]: (current[lead.id] || 0) + 1 }));
+      const client = clientsById.get(clientId);
+      flash(`${lead.full_name} linked to existing client ${client ? client.full_name : clientIdLabel(clientId)}`);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: describeAppointmentError(error, "Could not link this enquiry. Please try again.") };
+    }
+  }
+
+  async function handleUnlinkClient(lead, reason) {
+    if (!canEditStatuses) return { ok: false, message: "You do not have permission to unlink enquiries." };
+    try {
+      await unlinkLeadFromClient(lead.id, reason);
+      setLinksReload((value) => value + 1);
+      setActivityRevisions((current) => ({ ...current, [lead.id]: (current[lead.id] || 0) + 1 }));
+      flash(`${lead.full_name} is no longer linked to a client`);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: describeAppointmentError(error, "Could not remove the link. Please try again.") };
+    }
+  }
 
   // Reminders: booked appointments starting in the next 24 hours.
   const reminders = useMemo(() => {
@@ -1188,7 +1258,10 @@ const filteredLeads = useMemo(() => {
   }
 
   // Day 23: confirm an eligible lead and book its first appointment in one database transaction.
-  function openConversion(lead) {
+  // Day 24: an enquiry linked to an existing client is booked for THAT client (convert_lead_to_existing_client).
+  // Otherwise every client with the same phone number is offered (shared numbers are allowed: a family member may
+  // need their own profile) and staff choose explicitly: one of them, or a separate new client (Day 23 RPC).
+  async function openConversion(lead) {
     closeLeadDetails();
     if (!canEditStatuses) {
       flash("You do not have permission to change lead statuses.", "error");
@@ -1198,7 +1271,18 @@ const filteredLeads = useMemo(() => {
       flash(`A ${lead.status} lead cannot be confirmed directly. ${confirmPathHint(lead.status)}`.trim(), "error");
       return;
     }
-    setBookingDialog({ mode: "convert", lead });
+    const linkedClient = linkedClientByLead.get(lead.id) || null;
+    let phoneMatches = [];
+    if (!linkedClient) {
+      try {
+        const matches = await findPhoneMatches(lead.phone, lead.id);
+        phoneMatches = matches.clients.map((item) => ({ ...item, ...(clientsById.get(item.id) || {}) }));
+      } catch (error) {
+        // Not deployed yet or not reachable: no suggestions; booking a new client still works as on Day 23.
+        if (!isMissingBackend(error)) console.error("Phone lookup failed:", error);
+      }
+    }
+    setBookingDialog({ mode: "convert", lead, linkedClient, phoneMatches });
   }
 
   function openReschedule(appointment) {
@@ -1226,14 +1310,34 @@ const filteredLeads = useMemo(() => {
       const doctor = psychologistNames[values.psychologist_id] || "the psychologist";
       if (dialog.mode === "convert") {
         if (!canEditStatuses) return { ok: false, message: "You do not have permission to change lead statuses." };
-        const result = await convertLeadToAppointment({
-          leadId: dialog.lead.id,
-          expectedStatus: values.expected_status,
-          psychologistId: values.psychologist_id,
-          serviceId: values.service_id,
-          startsAt: values.starts_at,
-          notes: values.notes,
-        });
+        // The client the staff member chose in the dialog (linked client, or one of the phone matches), or null for a
+        // separate new client profile. Nothing is chosen automatically.
+        const existing = values.existing_client_id
+          ? dialog.linkedClient && String(dialog.linkedClient.id) === String(values.existing_client_id)
+            ? dialog.linkedClient
+            : (dialog.phoneMatches || []).find((item) => String(item.id) === String(values.existing_client_id)) || null
+          : null;
+        if (values.existing_client_id && !existing) return { ok: false, message: "Choose the client again: that client is no longer in the list." };
+        const result = existing
+          ? await convertLeadToExistingClient({
+              leadId: dialog.lead.id,
+              expectedStatus: values.expected_status,
+              clientId: existing.id,
+              psychologistId: values.psychologist_id,
+              serviceId: values.service_id,
+              startsAt: values.starts_at,
+              notes: values.notes,
+              linkNote: values.link_note,
+            })
+          : await convertLeadToAppointment({
+              leadId: dialog.lead.id,
+              expectedStatus: values.expected_status,
+              psychologistId: values.psychologist_id,
+              serviceId: values.service_id,
+              startsAt: values.starts_at,
+              notes: values.notes,
+            });
+        if (existing) setLinksReload((value) => value + 1);
         // The lead is now Confirmed; the clients list reloads itself when the Confirmed count changes.
         const savedLead = mapLeadRecord({ ...result.lead, activity: dialog.lead.activity });
         setLeads((current) => current.map((item) => (item.id === savedLead.id ? savedLead : item)));
@@ -1241,7 +1345,11 @@ const filteredLeads = useMemo(() => {
         if (result.appointment) storeAppointment(result.appointment);
         else setSchedulingReload((value) => value + 1);
         pushNotification(`${savedLead.full_name}: confirmed and booked for ${formatDateTime(values.starts_at)} with ${doctor}`);
-        flash(`${savedLead.full_name} confirmed, client profile created and appointment booked`);
+        flash(
+          existing
+            ? `${savedLead.full_name} confirmed and linked to existing client ${existing.full_name} (${clientIdLabel(existing.id)}); appointment booked`
+            : `${savedLead.full_name} confirmed, client profile created and appointment booked`
+        );
         const convertedAt = new Date(values.starts_at);
         setCalAnchor(new Date(convertedAt.getFullYear(), convertedAt.getMonth(), 1));
         setCalDay(startOfDay(convertedAt));
@@ -2852,6 +2960,7 @@ const filteredLeads = useMemo(() => {
       {showForm && (
         <AddLeadModal
           leads={leads}
+          clients={clients}
           staffOptions={staffOptions}
           currentStaffName={currentStaff.name}
           onClose={() => setShowForm(false)}
@@ -2916,6 +3025,12 @@ const filteredLeads = useMemo(() => {
           appointmentActionsFor={actionsFor}
           canScheduleAppointments={canScheduleAppointments}
           hasClientProfile={clientsByLead.has(selectedLead.id)}
+          linkedClient={linkedClientByLead.get(selectedLead.id) || null}
+          ownClient={clients.find((item) => item.lead_id === selectedLead.id) || null}
+          onFindPhoneMatches={findPhoneMatches}
+          onLinkClient={handleLinkClient}
+          onUnlinkClient={handleUnlinkClient}
+          onOpenClient={(clientId) => router.push(`/clients/${clientId}`)}
           onRequestBooking={openBooking}
           onRequestConversion={openConversion}
           onAppointmentAction={runAppointmentAction}
@@ -2946,6 +3061,8 @@ const filteredLeads = useMemo(() => {
           mode={bookingDialog.mode}
           lockedClient={bookingDialog.client || null}
           lead={bookingDialog.lead || null}
+          linkedClient={bookingDialog.linkedClient || null}
+          phoneMatches={bookingDialog.phoneMatches || []}
           appointment={bookingDialog.appointment}
           clients={clients.filter((item) => item.is_active)}
           psychologists={schedulablePsychologists}

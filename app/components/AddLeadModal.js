@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fieldProps } from "./Field";
 import Icon from "./Icon";
 import ModalShell from "./ModalShell";
+import { normalizePhone } from "../lib/phone";
+import { clientIdLabel } from "../lib/clientsApi";
 import {
   DEFAULT_STATUS,
   NOTES_LIMIT,
@@ -83,9 +85,14 @@ function validate(values, leads) {
     errors.phone = "Enter a phone number.";
   } else if (digits.length < 10 || digits.length > 13) {
     errors.phone = "Enter a valid number: 10 digits, with or without +91.";
+  } else if (!normalizePhone(values.phone)) {
+    errors.phone = "Enter a valid number: 10 digits, or + and the country code.";
   } else {
-    const duplicate = leads.find((lead) => phoneDigits(lead.phone).slice(-10) === digits.slice(-10));
-    if (duplicate) errors.phone = `Already saved for ${duplicate.full_name} (${duplicate.lead_code}).`;
+    // Day 24: compare normalised numbers (formatting and +91 do not matter; another country code is another number).
+    // Only a still-open enquiry blocks a new one. A returning client or an earlier closed enquiry may enquire again:
+    // that is shown as a notice, and the new enquiry is linked to the existing client from the lead drawer.
+    const duplicate = openLeadWithPhone(values.phone, leads);
+    if (duplicate) errors.phone = `Already saved for ${duplicate.full_name} (${duplicate.lead_code}), which is still open. Update that lead instead.`;
   }
 
   const email = values.email.trim();
@@ -106,8 +113,26 @@ function validate(values, leads) {
   return errors;
 }
 
+const CLOSED_OR_CONVERTED = ["Confirmed", "Not Interested", "Lost Lead"];
+
+function openLeadWithPhone(phone, leads) {
+  const wanted = normalizePhone(phone);
+  return wanted ? leads.find((lead) => !CLOSED_OR_CONVERTED.includes(lead.status) && normalizePhone(lead.phone) === wanted) : null;
+}
+
+// Existing clients and earlier (closed or converted) enquiries with the same number: shown, never blocking.
+function phoneNotice(phone, leads, clients) {
+  const wanted = normalizePhone(phone);
+  if (!wanted) return null;
+  const matching = clients.filter((item) => (item.phone_normalized || normalizePhone(item.phone)) === wanted);
+  const earlier = leads.filter((lead) => CLOSED_OR_CONVERTED.includes(lead.status) && normalizePhone(lead.phone) === wanted);
+  if (matching.length === 0 && earlier.length === 0) return null;
+  return { clients: matching, earlier };
+}
+
 export default function AddLeadModal({
   leads,
+  clients = [],
   staffOptions = [],
   currentStaffName = "",
   onClose,
@@ -130,6 +155,10 @@ export default function AddLeadModal({
   }, [currentStaffName]);
 
   const errors = useMemo(() => validate(values, leads), [values, leads]);
+  const existingNotice = useMemo(
+    () => (errors.phone ? null : phoneNotice(values.phone, leads, clients)),
+    [errors.phone, values.phone, leads, clients]
+  );
   const errorCount = Object.keys(errors).length;
   const isDirty = JSON.stringify(values) !== JSON.stringify(initialValues);
 
@@ -256,6 +285,33 @@ export default function AddLeadModal({
                 placeholder="+91 98765 43210"
               />
             </Box>
+            {existingNotice && (
+              <div className="notice warn" role="status">
+                <Icon name="info" />
+                <div>
+                  <strong>
+                    {existingNotice.clients.length
+                      ? `${existingNotice.clients.length === 1 ? "1 existing client has" : `${existingNotice.clients.length} existing clients have`} this number`
+                      : "This number has enquired before"}
+                  </strong>
+                  {existingNotice.clients.length > 0 && (
+                    <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                      {existingNotice.clients.map((item) => (
+                        <li key={item.id}>
+                          {item.full_name} <span className="client-id">{clientIdLabel(item.id)}</span>
+                          {item.is_active === false ? " (inactive)" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {existingNotice.earlier.length > 0 &&
+                    `Earlier enquiries: ${existingNotice.earlier.map((lead) => `${lead.lead_code} (${lead.status})`).join(", ")}. `}
+                  {existingNotice.clients.length
+                    ? "You can still save this enquiry. If it is from one of these clients, link it to them from the lead drawer; if it is someone else (for example a family member), it can become a separate client."
+                    : "You can still save this new enquiry."}
+                </div>
+              </div>
+            )}
 
             <Box id="add-email" label="Email ID" error={visibleError("email")}>
               <input

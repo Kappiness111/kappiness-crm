@@ -17,8 +17,10 @@ function ClientsView() {
         <div>
           <h1>Confirmed Clients</h1>
           <p>
-            Everyone who has become a client (a lead set to Confirmed with a psychologist). Open a client to see their appointments,
-            sessions and follow-ups. A client being confirmed is separate from an appointment being confirmed by the client.
+            Everyone who has become a client (a lead set to Confirmed with a psychologist). Search by name, phone number or Client ID,
+            and open a client to see their appointments, sessions, communication and enquiries. One client per phone number: a
+            new enquiry from an existing client is linked to their profile. A client being confirmed is separate from an
+            appointment being confirmed by the client.
           </p>
         </div>
       </header>

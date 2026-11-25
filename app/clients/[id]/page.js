@@ -23,6 +23,7 @@ function ClientView() {
         notify={notify}
         onBack={() => router.push("/clients")}
         onOpenLead={(leadId) => router.push(`/?view=Leads&lead=${encodeURIComponent(leadId)}`)}
+        onOpenClient={(otherId) => router.push(`/clients/${encodeURIComponent(otherId)}`)}
       />
       <Toast toast={toast} />
     </PsychologistShell>

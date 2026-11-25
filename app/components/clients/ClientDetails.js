@@ -5,7 +5,18 @@ import Icon from "../Icon";
 import AppointmentTable, { StatusPill } from "../AppointmentTable";
 import useAppointmentWorkflow from "../scheduling/useAppointmentWorkflow";
 import { ACTIVE_APPOINTMENT_STATUSES, describeAppointmentError, listAppointmentHistory, listAppointments } from "../../lib/appointmentsApi";
-import { assignClientPsychologist, getClient, listLeadActivities } from "../../lib/clientsApi";
+import {
+  assignClientPsychologist,
+  clientIdLabel,
+  getClient,
+  listClientChanges,
+  listClientEnquiries,
+  listLeadActivities,
+  setClientActive,
+} from "../../lib/clientsApi";
+import ReasonDialog from "../ReasonDialog";
+import ClientEditDialog from "./ClientEditDialog";
+import CommunicationPanel from "../communication/CommunicationPanel";
 import { formatDate, formatDateTime, formatTime } from "../../lib/leads";
 import { appointmentStatusLabel, sessionStatusLabel } from "../../lib/statusLabels";
 import { listRecommendations, listSessionNotes, listSessions, recommendationState } from "../../lib/sessionsApi";
@@ -15,8 +26,12 @@ import { listRecommendations, listSessionNotes, listSessions, recommendationStat
    What each viewer sees is decided by RLS: a psychologist only reaches their own clients, session notes are
    limited to the session's psychologist and administrators, and lead history is staff only.
 
+   Day 24: Client ID, referral source, Active/Inactive (with reason), editable details, total completed sessions,
+   last / next appointment, every enquiry that belongs to the client (original + linked), communication history and
+   the audited list of profile changes. Inactive clients keep every appointment, session and history row.
+
    viewer: { isStaff, isAdmin, ownPsychologist }  psychologists: [{ id, name, active }] for names / reassignment */
-export default function ClientDetails({ clientId, viewer, psychologists = [], onBack, notify, onOpenLead }) {
+export default function ClientDetails({ clientId, viewer, psychologists = [], onBack, notify, onOpenLead, onOpenClient }) {
   const [state, setState] = useState({ status: "loading", message: "" });
   const [client, setClient] = useState(null);
   const [appointments, setAppointments] = useState([]);
@@ -28,6 +43,10 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
   const [reload, setReload] = useState(0);
   const [assignDraft, setAssignDraft] = useState("");
   const [assignBusy, setAssignBusy] = useState(false);
+  const [enquiries, setEnquiries] = useState([]);
+  const [changes, setChanges] = useState([]);
+  const [editOpen, setEditOpen] = useState(false);
+  const [statusDialog, setStatusDialog] = useState(false);
 
   const names = useMemo(() => {
     const map = {};
@@ -53,10 +72,13 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
           listSessions({ clientId }),
           listRecommendations({ clientId }),
         ]);
-        const [hist, noteMap, acts] = await Promise.all([
+        const [hist, noteMap, acts, enq, chg] = await Promise.all([
           listAppointmentHistory(appts.map((item) => item.id)),
           listSessionNotes(sess.map((item) => item.id)).catch(() => ({})),
           viewer.isStaff ? listLeadActivities(found.lead_id).catch(() => []) : Promise.resolve([]),
+          viewer.isStaff ? listClientEnquiries(found).catch(() => []) : Promise.resolve([]),
+          // Staff and the client's psychologists may read the audit (activity_log_client_audit_read decides).
+          listClientChanges(found.id).catch(() => []),
         ]);
         if (cancelled) return;
         setClient(found);
@@ -67,6 +89,8 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
         setHistory(hist);
         setNotes(noteMap);
         setActivities(acts);
+        setEnquiries(enq);
+        setChanges(chg);
         setState({ status: "ready", message: "" });
       } catch (error) {
         console.error("Failed to load client:", error);
@@ -120,6 +144,28 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
     client.is_active && (viewer.isStaff || (viewer.ownPsychologist && String(client.primary_psychologist_id) === String(viewer.ownPsychologist.id)));
   const historyFor = (id) => history.filter((row) => row.appointment_id === id);
 
+  // Same rules as public.client_directory: only Completed sessions count; the last appointment is the latest one that
+  // has started and was not cancelled or moved; the next one is the earliest upcoming booking.
+  const totalSessions = client.total_sessions ?? sessions.filter((item) => item.status === "Completed").length;
+  const lastAppointment = appointments
+    .filter((item) => new Date(item.starts_at) <= now && ["Completed", "Missed", "Scheduled", "Confirmed"].includes(item.status))
+    .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))[0];
+  const nextAppointment = appointments
+    .filter((item) => new Date(item.starts_at) > now && ACTIVE_APPOINTMENT_STATUSES.includes(item.status))
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0];
+  const leadLabels = Object.fromEntries(enquiries.map((item) => [item.id, item.lead_code || "enquiry"]));
+
+  async function changeActive(reason) {
+    try {
+      await setClientActive(client.id, !client.is_active, reason);
+      notify(client.is_active ? `${client.full_name} marked inactive. Their history is kept.` : `${client.full_name} is active again`);
+      refresh();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: describeAppointmentError(error, "Could not change the client's status.") };
+    }
+  }
+
   async function saveAssignment() {
     if (!assignDraft || assignDraft === String(client.primary_psychologist_id)) return;
     setAssignBusy(true);
@@ -145,10 +191,18 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
     <>
       <header className="page-head">
         <div>
-          <h1>{client.full_name}</h1>
+          <h1>
+            {client.full_name}{" "}
+            <span className={`badge ${client.is_active ? "tone-success" : ""}`} style={{ verticalAlign: "middle" }}>
+              <span className="badge-dot" />
+              {client.is_active ? "Active" : "Inactive"}
+            </span>
+          </h1>
           <p>
-            Client since {formatDate(client.created_at)} · {client.is_active ? "Active" : "Inactive"} · Primary psychologist:{" "}
-            {names[client.primary_psychologist_id] || "Assigned"}
+            <span className="client-id" title={client.id}>
+              {clientIdLabel(client.id)}
+            </span>{" "}
+            · Client since {formatDate(client.created_at)} · Primary psychologist: {names[client.primary_psychologist_id] || client.psychologist_name || "Assigned"}
           </p>
         </div>
         <div className="page-actions">
@@ -162,6 +216,16 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
               Original lead
             </button>
           )}
+          {viewer.isStaff && (
+            <button type="button" className="btn" onClick={() => setEditOpen(true)}>
+              <Icon name="edit" /> Edit details
+            </button>
+          )}
+          {viewer.isStaff && (
+            <button type="button" className={`btn ${client.is_active ? "btn-danger" : ""}`} onClick={() => setStatusDialog(true)}>
+              {client.is_active ? "Mark inactive" : "Reactivate"}
+            </button>
+          )}
           {canBook && (
             <button type="button" className="btn btn-primary" onClick={() => workflow.openBooking(client)}>
               <Icon name="calendar" /> Book appointment
@@ -170,10 +234,22 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
         </div>
       </header>
 
+      {!client.is_active && (
+        <div className="notice warn" role="status" style={{ marginBottom: 16 }}>
+          <Icon name="info" />
+          <div>
+            <strong>This client is inactive.</strong>
+            New appointments cannot be booked until the client is reactivated. Appointment, session and communication
+            history is kept.
+          </div>
+        </div>
+      )}
+
       <div className="client-grid">
         <section className="panel panel-pad">
           <h2 className="panel-title">Personal and contact information</h2>
           <dl className="kv">
+            {info("Client ID", <span className="client-id-full">{client.id}</span>)}
             {info("Full name", client.full_name)}
             {info("Phone", client.phone ? <a href={`tel:${client.phone.replace(/\s/g, "")}`}>{client.phone}</a> : "")}
             {info("Email", client.email ? <a href={`mailto:${client.email}`}>{client.email}</a> : "")}
@@ -181,6 +257,8 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
             {info("Preferred language", client.preferred_language)}
             {info("Preferred contact", client.preferred_contact)}
             {info("Best time to contact", client.best_time)}
+            {info("Referral source", client.referral_source)}
+            {info("Status", client.is_active ? "Active" : "Inactive")}
           </dl>
         </section>
 
@@ -189,7 +267,32 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
           <dl className="kv">
             {info("Service interest", client.service_interest)}
             {info("Primary psychologist", names[client.primary_psychologist_id] || "Assigned")}
-            {info("Sessions completed", String(sessions.filter((item) => item.status === "Completed").length))}
+            {info("Total sessions", `${totalSessions} completed`)}
+            {info(
+              "Last appointment",
+              lastAppointment ? (
+                <>
+                  {formatDate(lastAppointment.starts_at)}, {formatTime(lastAppointment.starts_at)}{" "}
+                  <StatusPill
+                    status={lastAppointment.status}
+                    label={ACTIVE_APPOINTMENT_STATUSES.includes(lastAppointment.status) ? "Attendance not recorded" : appointmentStatusLabel(lastAppointment.status)}
+                  />
+                </>
+              ) : (
+                "None yet"
+              )
+            )}
+            {info(
+              "Next appointment",
+              nextAppointment ? (
+                <>
+                  {formatDate(nextAppointment.starts_at)}, {formatTime(nextAppointment.starts_at)}{" "}
+                  <StatusPill status={nextAppointment.status} label={appointmentStatusLabel(nextAppointment.status)} />
+                </>
+              ) : (
+                "Nothing booked"
+              )
+            )}
             {info("Upcoming appointments", String(upcoming.length))}
             {info("Follow-ups recommended", String(recommendations.filter((item) => item.status === "Open").length))}
           </dl>
@@ -390,6 +493,102 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
         <section className="section">
           <div className="section-head">
             <div>
+              <h2>
+                Enquiries <span className="muted num">{enquiries.length}</span>
+              </h2>
+              <p>The enquiry that created this client and any later enquiry linked to them. Each keeps its own source and history.</p>
+            </div>
+          </div>
+          <div className="panel panel-pad">
+            {enquiries.length === 0 ? (
+              <p className="appt-empty">No enquiries found.</p>
+            ) : (
+              <ul className="enquiry-list">
+                {enquiries.map((lead) => (
+                  <li key={lead.id}>
+                    <span>
+                      <strong>{lead.lead_code || "Enquiry"}</strong> · {formatDate(lead.created_at)} · {lead.source || "Source not set"} ·{" "}
+                      {lead.status}
+                      <small className="muted block">
+                        {lead.original
+                          ? "Original enquiry (created this client profile)"
+                          : `Linked ${formatDate(lead.link?.linked_at)}${lead.link?.linked_by_name ? ` by ${lead.link.linked_by_name}` : ""}${
+                              lead.link?.match_basis === "phone" ? " · same phone number" : " · linked manually"
+                            }${lead.link?.note ? ` · ${lead.link.note}` : ""}`}
+                      </small>
+                    </span>
+                    {onOpenLead && (
+                      <button type="button" className="btn btn-sm" onClick={() => onOpenLead(lead.id)}>
+                        Open enquiry
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+
+      {viewer.isStaff && (
+        <section className="section">
+          <div className="section-head">
+            <div>
+              <h2>Communication</h2>
+              <p>Calls, messages and reminders with this client and their enquiries, including follow-up contacts.</p>
+            </div>
+          </div>
+          <div className="panel panel-pad">
+            <CommunicationPanel
+              subject={{ clientId: client.id }}
+              name={client.full_name}
+              phone={client.phone}
+              includeLeadIds={enquiries.map((item) => item.id)}
+              includeFollowUps
+              leadLabels={leadLabels}
+              canRecord={viewer.isStaff}
+              notify={notify}
+            />
+          </div>
+        </section>
+      )}
+
+      {changes.length > 0 && (
+        <section className="section">
+          <div className="section-head">
+            <div>
+              <h2>Profile changes</h2>
+              <p>Every change to this client&apos;s details or status, with who made it and when.</p>
+            </div>
+          </div>
+          <div className="panel">
+            <ul className="list">
+              {changes.map((row) => (
+                <li key={row.id} className="list-row">
+                  <span className="grow">
+                    <strong>{row.action}</strong>
+                    <span>
+                      {Object.entries((row.details && row.details.changes) || {})
+                        .map(([field, change]) => `${field.replace(/_/g, " ")}: ${change.from ?? "—"} → ${change.to ?? "—"}`)
+                        .join("; ")}
+                      {row.details && row.details.reason ? ` · Reason: ${row.details.reason}` : ""}
+                    </span>
+                  </span>
+                  <span className="meta">
+                    {formatDateTime(row.created_at)}
+                    {row.actor_name ? ` · ${row.actor_name}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {viewer.isStaff && (
+        <section className="section">
+          <div className="section-head">
+            <div>
               <h2>Activity history</h2>
               <p>The original lead history, kept with the client.</p>
             </div>
@@ -418,6 +617,34 @@ export default function ClientDetails({ clientId, viewer, psychologists = [], on
       )}
 
       {workflow.dialogs}
+
+      {editOpen && (
+        <ClientEditDialog
+          client={client}
+          onClose={() => setEditOpen(false)}
+          onOpenClient={onOpenClient}
+          onSaved={(saved) => {
+            notify(`${saved ? saved.full_name : "Client"}: details saved`);
+            refresh();
+          }}
+        />
+      )}
+
+      {statusDialog && (
+        <ReasonDialog
+          title={client.is_active ? "Mark client inactive" : "Reactivate client"}
+          subtitle={
+            client.is_active
+              ? `${client.full_name} will not be bookable. Every appointment, session and history entry is kept. Open appointments (upcoming, or past and awaiting attendance) must be cancelled or have attendance recorded first.`
+              : `${client.full_name} can be booked again.`
+          }
+          label="Reason"
+          confirmLabel={client.is_active ? "Mark inactive" : "Reactivate"}
+          danger={client.is_active}
+          onClose={() => setStatusDialog(false)}
+          onSubmit={changeActive}
+        />
+      )}
     </>
   );
 }

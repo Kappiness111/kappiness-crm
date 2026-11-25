@@ -1682,3 +1682,15 @@ fieldset.field { border: 0; padding: 0; margin: 0; min-width: 0; }
 .workload strong { color: var(--text); font-weight: 600; }
 
 .client-search { margin-bottom: 6px; width: 100%; }
+
+/* Day 24: client management, duplicate matches and communication tracking */
+.comm-panel { display: grid; gap: 4px; }
+.comm-panel-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.comm-panel-head .muted { font-size: 12px; }
+.comm-form { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2, var(--surface)); }
+.client-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--text-2); }
+.client-id-full { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.match-card { display: grid; gap: 6px; }
+.match-card .followup-actions { margin-top: 4px; }
+.enquiry-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.enquiry-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); }
