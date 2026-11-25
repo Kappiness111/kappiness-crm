@@ -21,13 +21,20 @@ export function periodsFor(availability, psychologistId) {
 
 // Time an existing booking holds: its own length plus its buffer.
 function busyRange(item) {
+  const status = item.status;
   const start = new Date(item.starts_at).getTime();
   const end = item.ends_at ? new Date(item.ends_at).getTime() : start + SLOT_MINUTES * 60000;
   const held = item.blocked_until ? new Date(item.blocked_until).getTime() : end + (Number(item.buffer_minutes) || 0) * 60000;
-  return [start, held];
+  return [start, held, status];
 }
 
-/* Slots for one day. Each slot: { start, end, taken, blocked, past, free }.
+/* Slots for one day. Each slot: { start, end, taken, blocked, past, free, state }.
+   state is what the slot picker shows:
+     "available"  free to book
+     "tentative"  held by a booking still waiting for the client to confirm (Scheduled)
+     "booked"     held by a confirmed booking
+     "blocked"    leave or a blocked period
+     "past"       already started
    options:
      psychologistId   whose bookings count as busy
      ignoreId         appointment being rescheduled (its own slot counts as free)
@@ -80,10 +87,16 @@ export function slotsForDay(periods, day, appointments, options = {}) {
         const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, minute);
         const end = new Date(start.getTime() + duration * 60000);
         const heldUntil = end.getTime() + buffer * 60000;
-        const taken = busy.some(([busyStart, busyEnd]) => start.getTime() < busyEnd && heldUntil > busyStart);
+        const holders = busy.filter(([busyStart, busyEnd]) => start.getTime() < busyEnd && heldUntil > busyStart);
+        const taken = holders.length > 0;
         const isBlocked = blocked.some(([blockStart, blockEnd]) => start.getTime() < blockEnd && end.getTime() > blockStart);
         const past = start.getTime() <= now.getTime();
-        slots.push({ start, end, taken, blocked: isBlocked, past, free: !taken && !isBlocked && !past });
+        const state = isBlocked
+          ? "blocked"
+          : taken
+            ? holders.some(([, , status]) => status === "Confirmed") ? "booked" : "tentative"
+            : past ? "past" : "available";
+        slots.push({ start, end, taken, blocked: isBlocked, past, free: !taken && !isBlocked && !past, state });
       }
     });
 

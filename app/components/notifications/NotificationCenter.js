@@ -159,7 +159,6 @@ export default function NotificationCenter({ onNavigate, sessionItems = [], onSe
               <p className="notif-empty">You&apos;re all caught up. There are no notifications at the moment.</p>
             )}
           </div>
-          <p className="notif-foot">Built from your CRM records. Nothing here is sent to clients. Read status is saved on this device.</p>
         </div>
       )}
     </div>

@@ -98,11 +98,11 @@ const LEAF_PATH = 'M0 0 C -13 -26, -9 -54, 0 -74 C 9 -54, 13 -26, 0 0Z'
 
 function Plant({ x, y, scale = 1 }) {
   const leaves = [
-    { r: -50, s: 0.62, f: '#4a3027' },
-    { r: -26, s: 0.9, f: '#8b9b7a' },
-    { r: -3, s: 1, f: '#4a3027' },
-    { r: 22, s: 0.86, f: '#8b9b7a' },
-    { r: 46, s: 0.6, f: '#4a3027' },
+    { r: -50, s: 0.62, f: '#1f6f5a' },
+    { r: -26, s: 0.9, f: '#7fc4a8' },
+    { r: -3, s: 1, f: '#1f6f5a' },
+    { r: 22, s: 0.86, f: '#7fc4a8' },
+    { r: 46, s: 0.6, f: '#1f6f5a' },
   ]
 
   return (
@@ -110,12 +110,12 @@ function Plant({ x, y, scale = 1 }) {
       {leaves.map((l) => (
         <g key={l.r} transform={`translate(0 -4) rotate(${l.r}) scale(${l.s})`}>
           <path d={LEAF_PATH} fill={l.f} />
-          <path d="M0 -4 C -1 -26 0 -46 0 -62" stroke="#f7f0e6" strokeOpacity="0.3" strokeWidth="1.6" fill="none" />
+          <path d="M0 -4 C -1 -26 0 -46 0 -62" stroke="#eef5fb" strokeOpacity="0.3" strokeWidth="1.6" fill="none" />
         </g>
       ))}
-      <path d="M-26 0 H 26 L 21 70 H -21Z" fill="#f7f0e6" />
+      <path d="M-26 0 H 26 L 21 70 H -21Z" fill="#eef5fb" />
       <rect x="-30" y="-8" width="60" height="12" rx="5" fill="#ffffff" />
-      <g fill="#b96f43">
+      <g fill="#5b9fdc">
         <circle cx="-10" cy="22" r="4" />
         <circle cx="8" cy="17" r="4" />
         <circle cx="0" cy="40" r="4" />
@@ -148,7 +148,7 @@ function Seated({ chair, sweater, longHair = false, notebook = false }) {
       {/* legs */}
       <path d="M150 328 H 214" stroke="#2f1e17" strokeWidth="30" strokeLinecap="round" />
       <path d="M216 332 V 382" stroke="#2f1e17" strokeWidth="26" strokeLinecap="round" />
-      <path d="M204 392 H 240 q5 0 5 -5 v-4 h-40 v6 q0 3 -1 3Z" fill="#f7f0e6" />
+      <path d="M204 392 H 240 q5 0 5 -5 v-4 h-40 v6 q0 3 -1 3Z" fill="#eef5fb" />
 
       {/* torso */}
       <path
@@ -174,8 +174,8 @@ function Seated({ chair, sweater, longHair = false, notebook = false }) {
 
       {notebook && (
         <g>
-          <path d="M192 286 L 224 292 L 218 322 L 186 316Z" fill="#f7f0e6" stroke="#d7bf9c" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M196 296 L 214 299 M 195 303 L 212 306" stroke="#b96f43" strokeWidth="2" strokeLinecap="round" />
+          <path d="M192 286 L 224 292 L 218 322 L 186 316Z" fill="#eef5fb" stroke="#b7c9db" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M196 296 L 214 299 M 195 303 L 212 306" stroke="#5b9fdc" strokeWidth="2" strokeLinecap="round" />
           <circle cx="197" cy="309" r="8.5" fill="#e8b08a" />
         </g>
       )}
@@ -194,39 +194,39 @@ function WorkspaceArt() {
       {/* backdrop shapes */}
       <path
         d="M30 330 C 6 220, 70 120, 170 96 C 262 74, 330 40, 410 70 C 500 104, 548 200, 530 290 C 518 356, 470 392, 380 396 L 90 396 C 56 392, 38 368, 30 330Z"
-        fill="#e9c4a3"
+        fill="#d6e7f5"
       />
       <path
         d="M80 340 C 66 262, 120 196, 200 178 C 268 162, 340 134, 404 160 C 468 186, 504 246, 490 312 C 482 356, 444 388, 384 392 L 120 392 C 98 386, 86 366, 80 340Z"
-        fill="#dba883"
+        fill="#c2dcee"
       />
 
       {/* rug and floor */}
-      <ellipse cx="280" cy="394" rx="238" ry="9" fill="#a85f35" opacity="0.45" />
-      <path d="M24 396 H 540" stroke="#4a3027" strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round" />
+      <ellipse cx="280" cy="394" rx="238" ry="9" fill="#1f5f99" opacity="0.45" />
+      <path d="M24 396 H 540" stroke="#1c3a57" strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round" />
 
       {/* plants */}
       <Plant x={40} y={322} scale={0.92} />
       <Plant x={524} y={322} scale={0.92} />
 
       {/* the two people */}
-      <Seated chair="#5d3f33" sweater="#8b9b7a" notebook />
+      <Seated chair="#1f4f7a" sweater="#7fc4a8" notebook />
       <g transform="translate(560 0) scale(-1 1)">
-        <Seated chair="#7a4d3c" sweater="#f1e2cc" longHair />
+        <Seated chair="#2f6f9f" sweater="#e3eef8" longHair />
       </g>
 
       {/* coffee table */}
       <rect x="276" y="338" width="8" height="52" rx="3" fill="#2a1a14" />
       <ellipse cx="280" cy="393" rx="24" ry="5" fill="#2a1a14" />
       <ellipse cx="280" cy="336" rx="36" ry="9" fill="#2a1a14" />
-      <ellipse cx="280" cy="333" rx="36" ry="9" fill="#4a3027" />
+      <ellipse cx="280" cy="333" rx="36" ry="9" fill="#1c3a57" />
 
       {/* the mug: swirl pattern nods to the Kappiness logo */}
       <path d="M294 312 q13 0 13 9 q0 9 -13 9" stroke="#ffffff" strokeWidth="5" fill="none" strokeLinecap="round" />
       <rect x="266" y="304" width="30" height="29" rx="8" fill="#ffffff" />
       <ellipse cx="281" cy="304" rx="15" ry="4" fill="#6b3f2a" />
-      <path d="M272 318 c3 -5 7 3 10 -2 c3 -4 6 2 9 -1" stroke="#b96f43" strokeWidth="2.6" fill="none" strokeLinecap="round" />
-      <path d="M272 325 c3 -4 7 2 10 -1 c3 -3 6 1 9 -1" stroke="#b96f43" strokeWidth="2.6" fill="none" strokeLinecap="round" />
+      <path d="M272 318 c3 -5 7 3 10 -2 c3 -4 6 2 9 -1" stroke="#5b9fdc" strokeWidth="2.6" fill="none" strokeLinecap="round" />
+      <path d="M272 325 c3 -4 7 2 10 -1 c3 -3 6 1 9 -1" stroke="#5b9fdc" strokeWidth="2.6" fill="none" strokeLinecap="round" />
 
       {/* steam rising into a heart */}
       <path d="M274 298 q-6 -10 0 -18 q6 -8 0 -16" stroke="#ffffff" strokeOpacity="0.9" strokeWidth="3" fill="none" strokeLinecap="round" />
@@ -237,7 +237,7 @@ function WorkspaceArt() {
       />
       <path
         d="M281 252 C 258 236, 262 220, 270 220 C 275 220, 281 226, 281 228 C 281 226, 287 220, 292 220 C 300 220, 304 236, 281 252Z"
-        fill="#b96f43"
+        fill="#5b9fdc"
         opacity="0.9"
       />
 
@@ -246,16 +246,16 @@ function WorkspaceArt() {
         <rect x="110" y="112" width="66" height="44" rx="14" fill="#ffffff" />
         <path d="M138 156 l6 16 l14 -16Z" fill="#ffffff" />
         <path d="M143 142 V 128" stroke="#5f7352" strokeWidth="2.6" strokeLinecap="round" />
-        <path d="M143 132 C 135 130, 131 124, 133 120 C 140 119, 144 124, 143 132Z" fill="#8b9b7a" />
+        <path d="M143 132 C 135 130, 131 124, 133 120 C 140 119, 144 124, 143 132Z" fill="#7fc4a8" />
         <path d="M143 129 C 150 126, 156 121, 155 117 C 148 116, 143 121, 143 129Z" fill="#5f7352" />
         <rect x="160" y="130" width="10" height="4" rx="2" fill="#d9cfc6" />
       </g>
       <g>
-        <rect x="394" y="96" width="70" height="46" rx="14" fill="#4a3027" />
-        <path d="M420 142 l-4 16 l20 -16Z" fill="#4a3027" />
+        <rect x="394" y="96" width="70" height="46" rx="14" fill="#1c3a57" />
+        <path d="M420 142 l-4 16 l20 -16Z" fill="#1c3a57" />
         <path
           d="M429 128 C 412 118, 416 104, 423 104 C 427 104, 429 108, 429 110 C 429 108, 432 104, 436 104 C 443 104, 446 118, 429 128Z"
-          fill="#f7f0e6"
+          fill="#eef5fb"
         />
       </g>
 

@@ -123,7 +123,7 @@ export default function PsychologistWorkload({ psychologistId }) {
                   ))}
                 </ul>
               )}
-              {clients.length > 8 && <p className="subtle-text panel-pad">And {clients.length - 8} more. See Confirmed Clients for the full list.</p>}
+              {clients.length > 8 && <p className="subtle-text panel-pad">And {clients.length - 8} more. See Clients for the full list.</p>}
             </div>
           </div>
         </>

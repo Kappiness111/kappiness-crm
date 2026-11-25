@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 /* The one modal frame used across the CRM (dialogs and side drawers).
    Handles Escape, outside click, page scroll lock and focus: focus moves into the dialog when it opens,
@@ -63,7 +64,8 @@ export default function ModalShell({
   }, []);
 
   const drawer = variant === "drawer";
-  return (
+  // Rendered on <body> so no parent (a sticky header, a card with a transform or filter) can clip or trap it.
+  const dialog = (
     <div
       className={`modal-backdrop ${drawer ? "drawer-backdrop" : ""}`}
       onMouseDown={(event) => {
@@ -82,4 +84,5 @@ export default function ModalShell({
       </section>
     </div>
   );
+  return typeof document === "undefined" ? dialog : createPortal(dialog, document.body);
 }

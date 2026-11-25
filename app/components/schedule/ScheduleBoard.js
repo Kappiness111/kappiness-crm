@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CountUp, Ring, SlotBar } from "../ui/MiniCharts";
+import "../../schedule/schedule.css";
 import ConfirmDialog from "../ConfirmDialog";
 import Icon from "../Icon";
 import AppointmentSlotDialog from "./AppointmentSlotDialog";
@@ -38,7 +40,8 @@ const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 /* Psychologist Schedule & Capacity board for staff. Reads real records only; every change goes through the
    existing database functions (book, confirm, reschedule, attendance, cancel, notes, blocked periods). */
-export default function ScheduleBoard({ viewer, notify, onOpenClient }) {
+// compact: the dashboard version (no roster or slot-length note underneath the cards).
+export default function ScheduleBoard({ viewer, notify, onOpenClient, compact = false }) {
   const [date, setDate] = useState(() => startOfDay(new Date()));
   const [view, setView] = useState("cards");
   const [search, setSearch] = useState("");
@@ -302,14 +305,14 @@ export default function ScheduleBoard({ viewer, notify, onOpenClient }) {
 
   const openSlot = openAppt ? Object.entries(labels).find(([id]) => id === openAppt.id) : null;
   const pct = summary.capacity ? Math.round((Math.min(summary.booked, summary.capacity) / summary.capacity) * 100) : 0;
+  // The six tiles of the clinic sheet. Selecting one filters the cards below to it.
   const cards = [
-    { id: "all", label: "Total booked", value: `${summary.booked} / ${summary.capacity}`, meta: `${summary.utilisation}% of capacity used`, bar: pct },
-    { id: "available", label: "Available capacity", value: summary.available, meta: summary.available ? "Slots ready to book" : "No free slots left" },
-    { id: "Confirmed", label: "Confirmed", value: summary.confirmed, meta: "Confirmed by the client" },
-    { id: "Scheduled", label: "Will inform", value: summary.willInform, meta: "Waiting for the client to confirm" },
-    { id: "rescheduled", label: "Rescheduled", value: summary.rescheduled, meta: "Bookings moved off this date" },
-    { id: "leave", label: "Staff on leave", value: summary.onLeave, meta: "Full day" },
-    { id: "practitioners", label: "Total practitioners", value: summary.practitioners, meta: "Active psychologists" },
+    { id: "all", label: "Total booked", value: summary.booked, unit: `/ ${summary.capacity} slots`, meta: `${summary.utilisation}% clinic utilisation`, bar: pct },
+    { id: "available", label: "Available", value: summary.available, unit: "open slots", meta: summary.available ? "Ready to book" : "Fully booked", tone: "free" },
+    { id: "Confirmed", label: "Confirmed", value: summary.confirmed, unit: "clients", meta: "Show confirmed", tone: "ok" },
+    { id: "Scheduled", label: "Will inform", value: summary.willInform, unit: "pending", meta: "Call to confirm", tone: "wait" },
+    { id: "rescheduled", label: "Rescheduled", value: summary.rescheduled, unit: "shifted", meta: "Show rescheduled", tone: "info" },
+    { id: "leave", label: "On leave", value: summary.onLeave, unit: "staff off", meta: `of ${summary.practitioners} psychologists`, tone: "leave" },
   ];
 
   return (
@@ -376,25 +379,77 @@ export default function ScheduleBoard({ viewer, notify, onOpenClient }) {
         )
       ) : (
         <>
-          <section className="kpis sched-kpis" aria-label="Daily summary">
-            {cards.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                className="kpi"
-                aria-pressed={card.id !== "practitioners" && statusFilter === card.id}
-                onClick={() => card.id !== "practitioners" && setStatusFilter(card.id === statusFilter ? "all" : card.id)}
+          <section className="sched-overview" aria-label="Day overview">
+            <div className="sched-ov-grid">
+              <Ring
+                size={120}
+                stroke={12}
+                label={`${summary.booked} of ${summary.capacity} slots booked`}
+                segments={[
+                  { value: summary.confirmed, tone: "ok" },
+                  { value: summary.willInform, tone: "wait" },
+                  { value: Math.max(0, summary.booked - summary.confirmed - summary.willInform), tone: "brand" },
+                  { value: summary.available, tone: "free" },
+                ]}
               >
-                <span className="kpi-label">{card.label}</span>
-                <span className="kpi-value">{loading ? "…" : card.value}</span>
-                <span className="kpi-meta">{card.meta}</span>
-                {card.bar !== undefined ? (
-                  <span className="sched-kpi-bar" aria-hidden="true">
-                    <span style={{ width: `${loading ? 0 : card.bar}%` }} />
-                  </span>
-                ) : null}
-              </button>
-            ))}
+                <b>{loading ? "…" : <CountUp value={summary.utilisation} suffix="%" />}</b>
+                <small>booked</small>
+              </Ring>
+              <div className="sched-ov-people" aria-label="Slots per psychologist">
+                {days.length === 0 && !loading ? <p className="subtle-text">No psychologists are working on this day.</p> : null}
+                {days.slice(0, 6).map((d) => {
+                  const waiting = d.dayAppointments.filter((item) => item.status === "Scheduled").length;
+                  const confirmed = d.dayAppointments.filter((item) => item.status === "Confirmed").length;
+                  return (
+                    <div key={d.psychologist.id} className="sched-ov-person">
+                      <span className="sched-ov-name">{d.psychologist.name}</span>
+                      <SlotBar
+                        label={`${d.psychologist.name}: ${d.booked} of ${d.capacity} booked`}
+                        parts={
+                          d.onLeave
+                            ? [{ value: 1, tone: "late" }]
+                            : [
+                                { value: confirmed, tone: "ok" },
+                                { value: waiting, tone: "wait" },
+                                { value: Math.max(0, d.booked - confirmed - waiting), tone: "brand" },
+                                { value: d.available, tone: "free" },
+                              ]
+                        }
+                      />
+                      <span className="sched-ov-count">{d.onLeave ? "On leave" : `${d.booked}/${d.capacity}`}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="sched-ov-top">
+              <div>
+                <strong className="sched-ov-big">{loading ? "…" : summary.booked}</strong>
+                <span className="sched-ov-of">of {loading ? "…" : summary.capacity} slots booked · {loading ? "…" : `${summary.utilisation}%`}</span>
+              </div>
+              {statusFilter !== "all" ? (
+                <button type="button" className="link-btn" onClick={() => setStatusFilter("all")}>
+                  Show everything
+                </button>
+              ) : null}
+            </div>
+            <div className="sched-ov-keys" role="group" aria-label="Show only">
+              {cards
+                .filter((card) => card.id !== "all")
+                .map((card) => (
+                  <button
+                    key={card.id}
+                    type="button"
+                    className={`sched-key ${card.tone ? `is-${card.tone}` : ""}`}
+                    aria-pressed={statusFilter === card.id}
+                    onClick={() => setStatusFilter(card.id === statusFilter ? "all" : card.id)}
+                    title={card.meta}
+                  >
+                    <i aria-hidden="true" />
+                    <b>{loading ? "…" : card.value}</b> {card.label.toLowerCase()}
+                  </button>
+                ))}
+            </div>
           </section>
 
           <div className="toolbar sched-filters">
@@ -424,7 +479,7 @@ export default function ScheduleBoard({ viewer, notify, onOpenClient }) {
             </span>
           </div>
 
-          {ready && data.slotService && (
+          {!compact && ready && data.slotService && (
             <p className="subtle-text sched-note">
               Slots are {data.slotService.duration_minutes}-minute sessions{data.slotService.buffer_minutes ? ` with ${data.slotService.buffer_minutes} minutes between them` : ""}, inside each
               psychologist&apos;s working hours. Capacity counts those slots, minus leave.
@@ -476,7 +531,7 @@ export default function ScheduleBoard({ viewer, notify, onOpenClient }) {
             <MasterGrid days={visibleDays} matches={filtering ? slotMatches : null} canManage={canManage} onBook={bookSlot} onOpen={setOpenAppt} />
           )}
 
-          {ready && <DailyRoster rows={rosterRows} slotLabels={labels} psychologistNames={names} allAppointments={data.appointments} onOpen={setOpenAppt} />}
+          {!compact && ready && <DailyRoster rows={rosterRows} slotLabels={labels} psychologistNames={names} allAppointments={data.appointments} onOpen={setOpenAppt} />}
         </>
       )}
 

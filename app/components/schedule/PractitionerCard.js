@@ -1,7 +1,8 @@
 "use client";
 
 import Icon from "../Icon";
-import { SLOT_STATUS, formatSlotTime } from "../../lib/scheduleCapacity";
+import { SLOT_STATUS } from "../../lib/scheduleCapacity";
+import { Ring } from "../ui/MiniCharts";
 
 /* One practitioner's day: header with hours, leave and capacity, then the numbered slots S1–S10.
    Every slot action calls a real operation through the handlers passed in by the board. */
@@ -22,36 +23,44 @@ export function SlotStatus({ appointment }) {
   );
 }
 
+const clockOf = (date) => date.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).replace(" ", " ");
+
 export default function PractitionerCard({ day, matches, canManage, now, onBook, onOpen, onConfirm, onReschedule, onMarkSlotUnavailable, onFreeSlot, onToggleLeave }) {
   const { psychologist, slots, booked, capacity, available, onLeave, working, hours } = day;
-  const pct = capacity ? Math.min(100, Math.round((booked / capacity) * 100)) : 0;
   const remainingText = !working ? "Not working this day" : onLeave ? "On leave" : `${available} slot${available === 1 ? "" : "s"} available`;
 
   return (
     <article className={`prac-card ${onLeave ? "is-leave" : ""}`} aria-label={`${psychologist.name}, ${booked} of ${capacity} slots booked`}>
       <header className="prac-head">
+        <span className="prac-avatar" aria-hidden="true">
+          {String(psychologist.name || "?").split(/s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("")}
+        </span>
         <div className="prac-id">
           <h3>
             {psychologist.name}
-            {hours ? <span className="prac-hours"> ({hours})</span> : null}
           </h3>
-          <span className="prac-role">Psychologist</span>
+          <span className="prac-role">{hours || "No hours set"}</span>
         </div>
         <div className="prac-count">
           {onLeave ? (
             <span className="slot-status tone-leave">On leave</span>
           ) : (
-            <>
-              <strong>
-                {booked} / {capacity}
-              </strong>
-              <span>slots</span>
-            </>
+            <Ring size={52} stroke={6} total={Math.max(capacity, 1)} segments={[{ value: booked, tone: booked >= capacity && capacity ? "wait" : "brand" }]} label={`${booked} of ${capacity} slots booked`}>
+              <b>{booked}</b>
+              <small>/{capacity}</small>
+            </Ring>
           )}
         </div>
       </header>
-      <div className="prac-meter" role="progressbar" aria-label="Slots booked" aria-valuemin={0} aria-valuemax={capacity} aria-valuenow={booked}>
-        <span style={{ width: `${pct}%` }} />
+      <div className="prac-strip" role="img" aria-label={`${booked} of ${capacity} slots booked`}>
+        {slots
+          .filter((slot) => slot.kind !== "off")
+          .map((slot) => (
+            <span
+              key={slot.label}
+              className={`strip-${slot.kind === "booked" ? (slot.appointment.status === "Confirmed" ? "ok" : slot.appointment.status === "Scheduled" ? "wait" : "done") : slot.kind}`}
+            />
+          ))}
       </div>
       <div className="prac-sub">
         <span>{remainingText}</span>
@@ -71,13 +80,13 @@ export default function PractitionerCard({ day, matches, canManage, now, onBook,
             const started = new Date(appt.starts_at) <= now;
             return (
               <li key={slot.label} className={`sched-slot slot-booked tone-${(SLOT_STATUS[appt.status] || {}).tone || ""} ${dim ? "is-dim" : ""}`}>
-                <span className="slot-no">{slot.label}</span>
+                <span className="slot-when">
+                  <b>{clockOf(slot.start)}</b>
+                  <small>{slot.label}</small>
+                </span>
                 <button type="button" className="slot-main" onClick={() => onOpen(appt)} title={`${appt.client_name}: open appointment details`}>
                   <span className="slot-name">{appt.client_name}</span>
-                  <span className="slot-time">
-                    {formatSlotTime(slot.start, slot.end)}
-                    {appt.notes ? <span className="slot-note"> · {appt.notes}</span> : null}
-                  </span>
+                  {appt.notes ? <span className="slot-time">{appt.notes}</span> : null}
                   <SlotStatus appointment={appt} />
                 </button>
                 <span className="slot-actions">
@@ -106,9 +115,12 @@ export default function PractitionerCard({ day, matches, canManage, now, onBook,
           if (slot.kind === "free") {
             return (
               <li key={slot.label} className={`sched-slot slot-free ${dim ? "is-dim" : ""}`}>
-                <span className="slot-no">{slot.label}</span>
+                <span className="slot-when">
+                  <b>{clockOf(slot.start)}</b>
+                  <small>{slot.label}</small>
+                </span>
                 <button type="button" className="slot-main" onClick={() => onBook(day, slot)} disabled={!canManage}>
-                  <span className="slot-name">+ Book {formatSlotTime(slot.start, slot.end)}</span>
+                  <span className="slot-name is-free">Free · book this time</span>
                 </button>
                 {canManage && (
                   <span className="slot-actions">
@@ -123,9 +135,12 @@ export default function PractitionerCard({ day, matches, canManage, now, onBook,
           if (slot.kind === "leave") {
             return (
               <li key={slot.label} className={`sched-slot slot-leave ${dim ? "is-dim" : ""}`}>
-                <span className="slot-no">{slot.label}</span>
+                <span className="slot-when">
+                  <b>{clockOf(slot.start)}</b>
+                  <small>{slot.label}</small>
+                </span>
                 <span className="slot-main is-static">
-                  <span className="slot-name">Unavailable · {formatSlotTime(slot.start, slot.end)}</span>
+                  <span className="slot-name">Unavailable</span>
                   <span className="slot-time">{(slot.block && slot.block.reason) || "Leave"}</span>
                 </span>
                 {canManage && slot.block && (
@@ -141,23 +156,20 @@ export default function PractitionerCard({ day, matches, canManage, now, onBook,
           if (slot.kind === "passed") {
             return (
               <li key={slot.label} className={`sched-slot slot-off ${dim ? "is-dim" : ""}`}>
-                <span className="slot-no">{slot.label}</span>
+                <span className="slot-when">
+                  <b>{clockOf(slot.start)}</b>
+                  <small>{slot.label}</small>
+                </span>
                 <span className="slot-main is-static">
-                  <span className="slot-name">{formatSlotTime(slot.start, slot.end)} · time has passed</span>
+                  <span className="slot-name">Time has passed</span>
                 </span>
               </li>
             );
           }
-          return (
-            <li key={slot.label} className={`sched-slot slot-off ${dim ? "is-dim" : ""}`}>
-              <span className="slot-no">{slot.label}</span>
-              <span className="slot-main is-static">
-                <span className="slot-name">{working ? "Outside working hours" : "Not working"}</span>
-              </span>
-            </li>
-          );
+          return null; // positions outside working hours are not listed
         })}
       </ol>
+      {!slots.some((slot) => slot.kind !== "off") ? <p className="prac-empty">{working ? "No slots left in working hours." : "Not working this day."}</p> : null}
     </article>
   );
 }

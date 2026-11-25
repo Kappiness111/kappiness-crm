@@ -12,10 +12,10 @@ function ClientsView() {
   const { psychologistNames, toast } = useStaffContext();
 
   return (
-    <PsychologistShell activeId="Clients" crumbs={[{ label: "Confirmed Clients" }]}>
+    <PsychologistShell activeId="Clients" crumbs={[{ label: "Clients" }]}>
       <header className="page-head">
         <div>
-          <h1>Confirmed Clients</h1>
+          <h1>Clients</h1>
           <p>
             Everyone who has become a client (a lead set to Confirmed with a psychologist). Search by name, phone number or Client ID,
             and open a client to see their appointments, sessions, communication and enquiries. One client per phone number: a
